@@ -1,0 +1,5 @@
+#pragma once
+
+/* Minimal fallback config used when compiling against OBS headers without full OBS build config generation. */
+#define OBS_RELEASE_CANDIDATE 0
+#define OBS_BETA 0

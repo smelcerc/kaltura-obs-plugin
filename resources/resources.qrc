@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/kaltura_live">
+    <file>icons/kaltura_live.svg</file>
+  </qresource>
+</RCC>

@@ -1,0 +1,8 @@
+{
+  "objectType": "KalturaSessionInfo",
+  "partnerId": "12345",
+  "userId": "operator@example.test",
+  "expiry": "1893456000",
+  "sessionType": "2",
+  "privileges": "disableentitlement"
+}

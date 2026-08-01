@@ -1,0 +1,5 @@
+{
+  "objectType": "KalturaAPIException",
+  "code": "INVALID_KS",
+  "message": "The supplied Kaltura Session is invalid"
+}

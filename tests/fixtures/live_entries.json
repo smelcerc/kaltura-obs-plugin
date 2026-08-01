@@ -1,0 +1,24 @@
+{
+  "objectType": "KalturaLiveStreamListResponse",
+  "totalCount": 2,
+  "objects": [
+    {
+      "objectType": "KalturaLiveStreamEntry",
+      "id": "1_livealpha",
+      "name": "Town Hall",
+      "description": "Primary live event",
+      "thumbnailUrl": "https://example.test/town-hall.jpg",
+      "createdAt": 1700000000,
+      "status": 2
+    },
+    {
+      "objectType": "KalturaLiveStreamEntry",
+      "id": "1_livebeta",
+      "name": "Backup Event",
+      "description": "Secondary live event",
+      "thumbnailUrl": "https://example.test/backup-event.jpg",
+      "createdAt": 1700000100,
+      "status": 7
+    }
+  ]
+}

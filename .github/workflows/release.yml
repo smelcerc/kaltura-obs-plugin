@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: version
+        shell: bash
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ "${GITHUB_REF_TYPE}" == tag && "${GITHUB_REF_NAME}" != "v${version}" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match VERSION ${version}" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+      - run: ./scripts/audit-release.sh
+
+  linux:
+    needs: validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential cmake ninja-build git curl file pkg-config \
+            obs-studio libobs-dev qt6-base-dev libsimde-dev
+      - name: Build release packages
+        env:
+          DIST_DIR: ${{ github.workspace }}/dist
+        run: ./scripts/package-linux.sh
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-linux
+          path: dist/*
+          if-no-files-found: error
+
+  macos:
+    needs: validate
+    runs-on: macos-15
+    env:
+      MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      MACOS_APPLICATION_SIGNING_IDENTITY: ${{ secrets.MACOS_APPLICATION_SIGNING_IDENTITY }}
+      MACOS_INSTALLER_SIGNING_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGNING_IDENTITY }}
+      APPLE_NOTARY_USERNAME: ${{ secrets.APPLE_NOTARY_USERNAME }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja qtbase
+          brew install --cask obs
+          git clone --depth 1 --branch 31.1.2 \
+            https://github.com/obsproject/obs-studio.git third_party/obs-studio
+      - name: Import optional signing certificate
+        if: env.MACOS_CERTIFICATE_BASE64 != ''
+        run: |
+          certificate_path="${RUNNER_TEMP}/release-certificate.p12"
+          keychain_path="${RUNNER_TEMP}/release-signing.keychain-db"
+          printf '%s' "${MACOS_CERTIFICATE_BASE64}" | base64 --decode > "${certificate_path}"
+          security create-keychain -p actions "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p actions "${keychain_path}"
+          security import "${certificate_path}" -P "${MACOS_CERTIFICATE_PASSWORD}" \
+            -A -t cert -f pkcs12 -k "${keychain_path}"
+          security list-keychain -d user -s "${keychain_path}" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: -s -k actions "${keychain_path}"
+      - name: Configure and build
+        run: |
+          cmake -S . -B build-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qtbase)" \
+            -DKALTURA_LIVE_OBS_APP_FRAMEWORK_PATH=/Applications/OBS.app/Contents/Frameworks
+          cmake --build build-release --parallel
+          ctest --test-dir build-release --output-on-failure
+      - name: Configure optional notarization
+        if: env.APPLE_NOTARY_USERNAME != ''
+        env:
+          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcrun notarytool store-credentials kaltura-live-notary \
+            --apple-id "${APPLE_NOTARY_USERNAME}" \
+            --password "${APPLE_NOTARY_PASSWORD}" \
+            --team-id "${APPLE_TEAM_ID}"
+      - name: Build installer and archive
+        env:
+          BUILD_DIR: ${{ github.workspace }}/build-release
+          DIST_DIR: ${{ github.workspace }}/dist
+          APPLE_NOTARY_PROFILE: kaltura-live-notary
+        run: |
+          if [[ -n "${APPLE_NOTARY_USERNAME}" ]]; then export MACOS_NOTARIZE=true; fi
+          QT_PREFIX="$(brew --prefix qtbase)" ./scripts/package-macos.sh
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-macos
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [validate, linux, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Generate combined checksums
+        run: |
+          cd dist
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -print0 \
+            | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+      - uses: actions/attest@v4
+        with:
+          subject-path: dist/*
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --draft \
+            --generate-notes \
+            --notes-file RELEASE_NOTES_TEMPLATE.md \
+            --title "Kaltura Live ${{ needs.validate.outputs.version }}"

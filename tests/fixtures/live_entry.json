@@ -1,0 +1,20 @@
+{
+  "objectType": "KalturaLiveStreamEntry",
+  "id": "1_livealpha",
+  "name": "Town Hall",
+  "primaryBroadcastingUrl": "rtmp://primary.example.test/live",
+  "secondaryBroadcastingUrl": "rtmp://backup.example.test/live",
+  "primarySecuredBroadcastingUrl": "rtmps://primary.example.test/live",
+  "secondarySecuredBroadcastingUrl": "rtmps://backup.example.test/live",
+  "primaryRtspBroadcastingUrl": "rtsp://primary.example.test/live",
+  "secondaryRtspBroadcastingUrl": "rtsp://backup.example.test/live",
+  "primarySrtBroadcastingUrl": "srt://primary.example.test:9000",
+  "secondarySrtBroadcastingUrl": "srt://backup.example.test:9000",
+  "primarySrtStreamId": "#!::r=primary-key",
+  "secondarySrtStreamId": "#!::r=backup-key",
+  "streamName": "rtmp-stream-%i",
+  "streamUsername": "publisher-user",
+  "streamPassword": "publisher-password",
+  "streamUrl": "https://playback.example.test/live/master.m3u8",
+  "hlsStreamUrl": "https://playback.example.test/live/mobile.m3u8"
+}

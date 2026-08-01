@@ -1,0 +1,14 @@
+.git
+.github
+build*
+dist
+release
+third_party
+*.bin
+*.har
+*.log
+*.p12
+*.pem
+*.key
+*.crt
+*.cer

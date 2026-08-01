@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Audit release inputs
+        run: ./scripts/audit-release.sh
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential cmake ninja-build git curl file pkg-config \
+            obs-studio libobs-dev qt6-base-dev libsimde-dev
+          git clone --depth 1 --branch 31.1.2 \
+            https://github.com/obsproject/obs-studio.git third_party/obs-studio
+      - name: Configure
+        run: cmake -S . -B build-ci -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - name: Build
+        run: cmake --build build-ci --parallel
+      - name: Test
+        run: ctest --test-dir build-ci --output-on-failure
+      - name: Package automatic build
+        run: cmake --build build-ci --target package
+      - uses: actions/upload-artifact@v6
+        with:
+          name: kaltura-live-linux-${{ github.sha }}
+          path: |
+            build-ci/*.deb
+            build-ci/*.tar.gz
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja qtbase
+          brew install --cask obs
+          git clone --depth 1 --branch 31.1.2 \
+            https://github.com/obsproject/obs-studio.git third_party/obs-studio
+      - name: Configure
+        run: |
+          cmake -S . -B build-ci -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qtbase)" \
+            -DKALTURA_LIVE_OBS_APP_FRAMEWORK_PATH=/Applications/OBS.app/Contents/Frameworks
+      - name: Build and test
+        run: |
+          cmake --build build-ci --parallel
+          ctest --test-dir build-ci --output-on-failure
+      - name: Package automatic build
+        env:
+          BUILD_DIR: ${{ github.workspace }}/build-ci
+          DIST_DIR: ${{ github.workspace }}/dist
+        run: QT_PREFIX="$(brew --prefix qtbase)" ./scripts/package-macos.sh --without-models
+      - uses: actions/upload-artifact@v6
+        with:
+          name: kaltura-live-macos-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
