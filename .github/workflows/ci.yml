@@ -40,7 +40,7 @@ jobs:
         run: ctest --test-dir build-ci --output-on-failure
       - name: Package automatic build
         run: cmake --build build-ci --target package
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: kaltura-live-linux-${{ github.sha }}
           path: |
@@ -73,7 +73,7 @@ jobs:
           BUILD_DIR: ${{ github.workspace }}/build-ci
           DIST_DIR: ${{ github.workspace }}/dist
         run: QT_PREFIX="${QT_PREFIX}" ./scripts/package-macos.sh --without-models
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: kaltura-live-macos-${{ github.sha }}
           path: dist/*
