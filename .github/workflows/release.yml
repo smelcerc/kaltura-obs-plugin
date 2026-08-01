@@ -40,7 +40,7 @@ jobs:
         env:
           DIST_DIR: ${{ github.workspace }}/dist
         run: ./scripts/package-linux.sh
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: release-linux
           path: dist/*
@@ -102,7 +102,7 @@ jobs:
         run: |
           if [[ -n "${APPLE_NOTARY_USERNAME}" ]]; then export MACOS_NOTARIZE=true; fi
           QT_PREFIX="${QT_PREFIX}" ./scripts/package-macos.sh
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: release-macos
           path: dist/*
