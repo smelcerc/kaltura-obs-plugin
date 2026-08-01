@@ -66,7 +66,18 @@ jobs:
             -DKALTURA_LIVE_OBS_APP_FRAMEWORK_PATH=/Applications/OBS.app/Contents/Frameworks
       - name: Build and test
         run: |
-          cmake --build build-ci --parallel
+          set +e
+          cmake --build build-ci --parallel 2 2>&1 | tee macos-build.log
+          build_result=${PIPESTATUS[0]}
+          set -e
+          if (( build_result != 0 )); then
+            diagnostic="$(tail -80 macos-build.log)"
+            diagnostic="${diagnostic//'%'/'%25'}"
+            diagnostic="${diagnostic//$'\r'/'%0D'}"
+            diagnostic="${diagnostic//$'\n'/'%0A'}"
+            echo "::error title=macOS build failed::${diagnostic}"
+            exit "${build_result}"
+          fi
           ctest --test-dir build-ci --output-on-failure
       - name: Package automatic build
         env:
