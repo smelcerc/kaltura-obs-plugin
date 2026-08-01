@@ -130,15 +130,33 @@ jobs:
             | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
       - uses: actions/attest@v4
         with:
-          subject-path: dist/*
+          subject-path: |
+            dist/*.pkg
+            dist/*.deb
+            dist/*.tar.gz
+            dist/SHA256SUMS*.txt
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           notes_file="docs/releases/${GITHUB_REF_NAME}.md"
           if [[ ! -f "${notes_file}" ]]; then notes_file="RELEASE_NOTES_TEMPLATE.md"; fi
-          gh release create "${GITHUB_REF_NAME}" dist/* \
-            --verify-tag \
-            --latest \
-            --notes-file "${notes_file}" \
-            --title "Kaltura Live ${{ needs.validate.outputs.version }}"
+          mapfile -d '' release_assets < <(find dist -maxdepth 1 -type f -print0)
+          if (( ${#release_assets[@]} == 0 )); then
+            echo "No release assets were downloaded" >&2
+            exit 1
+          fi
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "${release_assets[@]}" --clobber
+            gh release edit "${GITHUB_REF_NAME}" \
+              --draft=false \
+              --latest \
+              --notes-file "${notes_file}" \
+              --title "Kaltura Live ${{ needs.validate.outputs.version }}"
+          else
+            gh release create "${GITHUB_REF_NAME}" "${release_assets[@]}" \
+              --verify-tag \
+              --latest \
+              --notes-file "${notes_file}" \
+              --title "Kaltura Live ${{ needs.validate.outputs.version }}"
+          fi
