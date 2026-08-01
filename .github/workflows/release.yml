@@ -48,7 +48,7 @@ jobs:
 
   macos:
     needs: validate
-    runs-on: macos-15
+    runs-on: macos-15-intel
     env:
       MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
       MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -59,8 +59,8 @@ jobs:
       - uses: actions/checkout@v6
       - name: Install dependencies
         run: |
-          brew install cmake ninja qtbase
-          brew install --cask obs
+          brew install cmake ninja
+          ./scripts/setup-macos-ci.sh
           git clone --depth 1 --branch 31.1.2 \
             https://github.com/obsproject/obs-studio.git third_party/obs-studio
       - name: Import optional signing certificate
@@ -80,7 +80,7 @@ jobs:
         run: |
           cmake -S . -B build-release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$(brew --prefix qtbase)" \
+            -DCMAKE_PREFIX_PATH="${QT_PREFIX}" \
             -DKALTURA_LIVE_OBS_APP_FRAMEWORK_PATH=/Applications/OBS.app/Contents/Frameworks
           cmake --build build-release --parallel
           ctest --test-dir build-release --output-on-failure
@@ -101,7 +101,7 @@ jobs:
           APPLE_NOTARY_PROFILE: kaltura-live-notary
         run: |
           if [[ -n "${APPLE_NOTARY_USERNAME}" ]]; then export MACOS_NOTARIZE=true; fi
-          QT_PREFIX="$(brew --prefix qtbase)" ./scripts/package-macos.sh
+          QT_PREFIX="${QT_PREFIX}" ./scripts/package-macos.sh
       - uses: actions/upload-artifact@v6
         with:
           name: release-macos
@@ -131,12 +131,14 @@ jobs:
       - uses: actions/attest@v4
         with:
           subject-path: dist/*
-      - name: Create draft GitHub release
+      - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          notes_file="docs/releases/${GITHUB_REF_NAME}.md"
+          if [[ ! -f "${notes_file}" ]]; then notes_file="RELEASE_NOTES_TEMPLATE.md"; fi
           gh release create "${GITHUB_REF_NAME}" dist/* \
-            --draft \
-            --generate-notes \
-            --notes-file RELEASE_NOTES_TEMPLATE.md \
+            --verify-tag \
+            --latest \
+            --notes-file "${notes_file}" \
             --title "Kaltura Live ${{ needs.validate.outputs.version }}"

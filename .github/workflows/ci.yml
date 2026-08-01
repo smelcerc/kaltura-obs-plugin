@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
   workflow_dispatch:
 
@@ -49,20 +49,20 @@ jobs:
           if-no-files-found: error
 
   macos:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v6
       - name: Install dependencies
         run: |
-          brew install cmake ninja qtbase
-          brew install --cask obs
+          brew install cmake ninja
+          ./scripts/setup-macos-ci.sh
           git clone --depth 1 --branch 31.1.2 \
             https://github.com/obsproject/obs-studio.git third_party/obs-studio
       - name: Configure
         run: |
           cmake -S . -B build-ci -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_PREFIX_PATH="$(brew --prefix qtbase)" \
+            -DCMAKE_PREFIX_PATH="${QT_PREFIX}" \
             -DKALTURA_LIVE_OBS_APP_FRAMEWORK_PATH=/Applications/OBS.app/Contents/Frameworks
       - name: Build and test
         run: |
@@ -72,7 +72,7 @@ jobs:
         env:
           BUILD_DIR: ${{ github.workspace }}/build-ci
           DIST_DIR: ${{ github.workspace }}/dist
-        run: QT_PREFIX="$(brew --prefix qtbase)" ./scripts/package-macos.sh --without-models
+        run: QT_PREFIX="${QT_PREFIX}" ./scripts/package-macos.sh --without-models
       - uses: actions/upload-artifact@v6
         with:
           name: kaltura-live-macos-${{ github.sha }}

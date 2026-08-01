@@ -36,8 +36,8 @@ or absolute developer paths.
 2. Confirm CI succeeds on `main`.
 3. Create and push a matching tag, for example `v0.1.0`.
 4. The Release workflow builds macOS and Linux packages, downloads verified Whisper models,
-   generates checksums and attestations, and creates a **draft** GitHub Release.
-5. Install and smoke-test both packages, edit the generated notes, then publish the draft manually.
+   generates checksums and attestations, and publishes the GitHub Release with its installers.
+5. Confirm the release page lists the `.pkg`, `.deb`, archives, checksums, and attestations.
 
 ## macOS signing placeholders
 

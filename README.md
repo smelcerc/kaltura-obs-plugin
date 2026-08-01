@@ -20,8 +20,8 @@ with Whisper.
 
 Download the package for your operating system from GitHub Releases:
 
-- **macOS:** open `kaltura-live-VERSION-macos.pkg`. The portable `.tar.gz` can be extracted and
-  copied manually instead.
+- **macOS (Intel):** download and open `kaltura-live-VERSION-macos.pkg`. The portable `.tar.gz`
+  can be extracted and copied manually instead. Apple Silicon packaging is not yet available.
 - **Ubuntu/Debian:** `sudo apt install ./kaltura-live_VERSION_amd64.deb`.
 - **Other Linux:** extract the Linux `.tar.gz` under `/` using your distribution's packaging
   conventions.
