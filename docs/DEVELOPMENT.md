@@ -22,6 +22,7 @@ queued Qt invocations.
 - C++20 compiler
 - Qt 6 Core, Gui, Network, and Widgets development files
 - OBS Studio 32.2+ development packages, or OBS.app plus matching OBS source headers on macOS
+- SIMDe headers (required by OBS 32 on Intel)
 - Git and curl for dependency/model retrieval
 - The `file` and `dpkg-dev` packages for Debian release packaging
 

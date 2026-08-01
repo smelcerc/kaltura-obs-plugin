@@ -59,7 +59,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
-          brew install cmake ninja
+          brew install cmake ninja simde
           ./scripts/setup-macos-ci.sh
           git clone --depth 1 --branch 32.2.1 \
             https://github.com/obsproject/obs-studio.git third_party/obs-studio
