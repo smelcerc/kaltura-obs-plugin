@@ -1,0 +1,30 @@
+#!/bin/bash
+set -euo pipefail
+
+source_bundle="/Library/Application Support/obs-studio/plugins/kaltura-live.plugin"
+console_user="$(/usr/bin/stat -f '%Su' /dev/console)"
+
+if [[ -z "${console_user}" || "${console_user}" == root || "${console_user}" == loginwindow ]]; then
+  echo "error: Kaltura Live must be installed while a desktop user is signed in" >&2
+  exit 1
+fi
+
+user_home="$(/usr/bin/dscl . -read "/Users/${console_user}" NFSHomeDirectory | /usr/bin/awk '{print $2}')"
+if [[ -z "${user_home}" || ! -d "${user_home}" || ! -d "${source_bundle}" ]]; then
+  echo "error: could not resolve the OBS plugin installation source or user home" >&2
+  exit 1
+fi
+
+user_group="$(/usr/bin/id -gn "${console_user}")"
+plugin_dir="${user_home}/Library/Application Support/obs-studio/plugins"
+target_bundle="${plugin_dir}/kaltura-live.plugin"
+
+/bin/mkdir -p "${plugin_dir}"
+if [[ -e "${target_bundle}" || -L "${target_bundle}" ]]; then
+  /bin/rm -rf "${target_bundle}"
+fi
+/usr/bin/ditto "${source_bundle}" "${target_bundle}"
+/usr/sbin/chown -R "${console_user}:${user_group}" "${target_bundle}"
+/usr/bin/xattr -cr "${target_bundle}"
+
+exit 0

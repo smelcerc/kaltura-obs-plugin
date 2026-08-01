@@ -12,8 +12,8 @@
 
 ## Installation
 
-- macOS 12+, OBS Studio 31+
-- Supported 64-bit Linux distribution, OBS Studio 31+
+- macOS 12+, OBS Studio 32.2+
+- Supported 64-bit Linux distribution, OBS Studio 32.2+
 
 ## Known issues
 

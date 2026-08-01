@@ -30,7 +30,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes build-essential cmake ninja-build git curl file pkg-config \
             obs-studio libobs-dev qt6-base-dev libsimde-dev
-          git clone --depth 1 --branch 31.1.2 \
+          git clone --depth 1 --branch 32.2.1 \
             https://github.com/obsproject/obs-studio.git third_party/obs-studio
       - name: Configure
         run: cmake -S . -B build-ci -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
@@ -56,7 +56,7 @@ jobs:
         run: |
           brew install cmake ninja
           ./scripts/setup-macos-ci.sh
-          git clone --depth 1 --branch 31.1.2 \
+          git clone --depth 1 --branch 32.2.1 \
             https://github.com/obsproject/obs-studio.git third_party/obs-studio
       - name: Configure
         run: |

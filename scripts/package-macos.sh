@@ -14,7 +14,7 @@ fi
 
 obs_source="${KALTURA_LIVE_OBS_SOURCE_PATH:-${project_dir}/third_party/obs-studio}"
 if [[ ! -f "${obs_source}/libobs/obs-module.h" ]]; then
-  git clone --depth 1 --branch "${OBS_VERSION:-31.1.2}" \
+  git clone --depth 1 --branch "${OBS_VERSION:-32.2.1}" \
     https://github.com/obsproject/obs-studio.git "${obs_source}"
 fi
 cmake -S "${project_dir}" -B "${build_dir}" -G Ninja \
@@ -78,7 +78,12 @@ archive="${dist_dir}/kaltura-live-${version}-macos.tar.gz"
 COPYFILE_DISABLE=1 tar -C "$(dirname "${bundle}")" -czf "${archive}" "$(basename "${bundle}")"
 
 unsigned_pkg="${staging_dir}/kaltura-live-unsigned.pkg"
+scripts_dir="${staging_dir}/scripts"
+mkdir -p "${scripts_dir}"
+cp "${project_dir}/packaging/macos/postinstall" "${scripts_dir}/postinstall"
+chmod 755 "${scripts_dir}/postinstall"
 COPYFILE_DISABLE=1 pkgbuild --root "${staging_dir}/root" \
+  --scripts "${scripts_dir}" \
   --filter '(^|/)\._.*' \
   --identifier com.kaltura.obs.kaltura-live \
   --version "${version}" \

@@ -21,14 +21,14 @@ queued Qt invocations.
 - Ninja
 - C++20 compiler
 - Qt 6 Core, Gui, Network, and Widgets development files
-- OBS Studio 31+ development packages, or OBS.app plus matching OBS source headers on macOS
+- OBS Studio 32.2+ development packages, or OBS.app plus matching OBS source headers on macOS
 - Git and curl for dependency/model retrieval
 - The `file` and `dpkg-dev` packages for Debian release packaging
 
 `whisper.cpp` is pinned by CMake. OBS source is intentionally ignored and must be cloned locally:
 
 ```bash
-git clone --depth 1 --branch 31.1.2 https://github.com/obsproject/obs-studio.git third_party/obs-studio
+git clone --depth 1 --branch 32.2.1 https://github.com/obsproject/obs-studio.git third_party/obs-studio
 ```
 
 ## macOS

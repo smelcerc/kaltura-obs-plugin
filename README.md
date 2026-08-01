@@ -1,6 +1,6 @@
 # Kaltura Live for OBS Studio
 
-Kaltura Live is an OBS Studio 31+ plugin for selecting Kaltura live entries, configuring Primary
+Kaltura Live is an OBS Studio 32.2+ plugin for selecting Kaltura live entries, configuring Primary
 and Backup RTMP outputs, monitoring output health, and generating private local CEA-608 captions
 with Whisper.
 
@@ -20,8 +20,9 @@ with Whisper.
 
 Download the package for your operating system from GitHub Releases:
 
-- **macOS (Intel):** download and open `kaltura-live-VERSION-macos.pkg`. The portable `.tar.gz`
-  can be extracted and copied manually instead. Apple Silicon packaging is not yet available.
+- **macOS (Intel):** download and open `kaltura-live-VERSION-macos.pkg`. The installer copies the
+  plugin into the current user's OBS plugin directory. The portable `.tar.gz` can be extracted and
+  copied there manually instead. Apple Silicon packaging is not yet available.
 - **Ubuntu/Debian:** `sudo apt install ./kaltura-live_VERSION_amd64.deb`.
 - **Other Linux:** extract the Linux `.tar.gz` under `/` using your distribution's packaging
   conventions.

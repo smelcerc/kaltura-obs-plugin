@@ -6,7 +6,7 @@ build_dir="${BUILD_DIR:-${project_dir}/build-linux}"
 dist_dir="${DIST_DIR:-${project_dir}/dist}"
 package_output_dir="${build_dir}/cpack-output"
 model_dir="${KALTURA_LIVE_MODEL_SOURCE_DIR:-${build_dir}/release-models}"
-obs_version="${OBS_VERSION:-31.1.2}"
+obs_version="${OBS_VERSION:-32.2.1}"
 obs_source="${KALTURA_LIVE_OBS_SOURCE_PATH:-${project_dir}/third_party/obs-studio}"
 
 for command in cmake cpack curl file git ninja shasum; do

@@ -34,7 +34,7 @@ or absolute developer paths.
 
 1. Update `VERSION` and complete `RELEASE_NOTES_TEMPLATE.md`.
 2. Confirm CI succeeds on `main`.
-3. Create and push a matching tag, for example `v0.1.0`.
+3. Create and push a matching tag, for example `v0.1.1`.
 4. The Release workflow builds macOS and Linux packages, downloads verified Whisper models,
    generates checksums and attestations, and publishes the GitHub Release with its installers.
 5. Confirm the release page lists the `.pkg`, `.deb`, archives, checksums, and attestations.
