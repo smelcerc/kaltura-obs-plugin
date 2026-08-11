@@ -7,7 +7,9 @@ mkdir -p "${destination}"
 sha256_file() {
   local path="$1"
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "${path}" | awk '{print $1}'
+    local hash=""
+    IFS=' ' read -r hash _ < <(sha256sum "${path}")
+    printf '%s\n' "${hash#\\}"
   elif command -v shasum >/dev/null 2>&1; then
     shasum -a 256 "${path}" | awk '{print $1}'
   elif command -v certutil >/dev/null 2>&1; then
@@ -43,6 +45,7 @@ download_model() {
   if [[ "${actual_sha256}" != "${expected_sha256}" ]]; then
     rm -f "${target}.download"
     echo "error: checksum verification failed for Local Whisper ${name}" >&2
+    echo "expected ${expected_sha256}; received ${actual_sha256:-unavailable}" >&2
     exit 1
   fi
   mv "${target}.download" "${target}"
