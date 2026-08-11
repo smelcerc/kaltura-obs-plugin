@@ -15,7 +15,9 @@ sha256_file() {
     if command -v cygpath >/dev/null 2>&1; then
       native_path="$(cygpath -w "${path}")"
     fi
-    certutil -hashfile "${native_path}" SHA256 | sed -n '2{s/[[:space:]]//g;s/\r//g;p;}'
+    certutil -hashfile "${native_path}" SHA256 |
+      sed -n '2{s/[[:space:]]//g;s/\r//g;p;}' |
+      tr '[:upper:]' '[:lower:]'
   else
     echo "error: no SHA-256 utility is available" >&2
     return 1
