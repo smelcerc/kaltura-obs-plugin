@@ -182,8 +182,9 @@ jobs:
           Invoke-Checked { cmake --build obs-build --target obs-frontend-api --config RelWithDebInfo --parallel }
           Invoke-Checked { cmake --install obs-build --component Development --config RelWithDebInfo --prefix "$root/obs-sdk" }
           } catch {
-            $diagnostic = ((Get-Content $log -Tail 100) -join "%0A").Replace('%', '%25')
-            $diagnostic = $diagnostic.Replace('%250A', '%0A').Replace("`r", '%0D')
+            $diagnostic = (Get-Content $log -Tail 100) -join "`n"
+            if ($diagnostic.Length -gt 6000) { $diagnostic = $diagnostic.Substring($diagnostic.Length - 6000) }
+            $diagnostic = $diagnostic.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
             Write-Output "::error title=Windows OBS SDK setup failed::$diagnostic"
             throw
           }
@@ -199,13 +200,17 @@ jobs:
           try {
           $root = "$env:GITHUB_WORKSPACE/.deps"
           $prefix = "$root/obs-sdk;$root/obs-deps;$root/qt6"
+          $qtCore = Get-ChildItem "$root/qt6" -Filter Qt6Core.dll -File -Recurse | Select-Object -First 1
+          if (!$qtCore) { throw "Qt6Core.dll was not found below $root/qt6" }
+          $env:PATH = "$($qtCore.DirectoryName);$env:PATH"
           Invoke-Checked { cmake -S . -B build-ci -G "Visual Studio 17 2022" -A x64 `
               "-DCMAKE_PREFIX_PATH:PATH=$prefix" `
               "-DKALTURA_LIVE_OBS_SOURCE_PATH:PATH=$env:GITHUB_WORKSPACE/third_party/obs-studio" }
           Invoke-Checked { ./scripts/package-windows.ps1 -BuildDirectory build-ci -DistDirectory dist -Configuration RelWithDebInfo }
           } catch {
-            $diagnostic = ((Get-Content $log -Tail 100) -join "%0A").Replace('%', '%25')
-            $diagnostic = $diagnostic.Replace('%250A', '%0A').Replace("`r", '%0D')
+            $diagnostic = (Get-Content $log -Tail 100) -join "`n"
+            if ($diagnostic.Length -gt 6000) { $diagnostic = $diagnostic.Substring($diagnostic.Length - 6000) }
+            $diagnostic = $diagnostic.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
             Write-Output "::error title=Windows plugin build failed::$diagnostic"
             throw
           }
