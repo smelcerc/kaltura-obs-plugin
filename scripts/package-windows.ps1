@@ -19,9 +19,22 @@ cmake --install $BuildDirectory --config $Configuration --prefix $StageDirectory
 
 $Binary = Join-Path $StageDirectory 'obs-plugins/64bit/kaltura-live.dll'
 if (!(Test-Path $Binary)) { throw "Packaged plugin binary was not found: $Binary" }
-$Headers = & dumpbin /headers $Binary | Out-String
-if ($LASTEXITCODE -ne 0 -or $Headers -notmatch 'machine \(x64\)') {
-  throw 'Architecture validation failed: plugin is not Windows x64'
+$Stream = [IO.File]::OpenRead($Binary)
+$Reader = [IO.BinaryReader]::new($Stream)
+try {
+  $Stream.Position = 0x3c
+  $PeOffset = $Reader.ReadInt32()
+  $Stream.Position = $PeOffset
+  $PeSignature = $Reader.ReadUInt32()
+  $Machine = $Reader.ReadUInt16()
+} finally {
+  $Reader.Dispose()
+  $Stream.Dispose()
+}
+if ($PeSignature -ne 0x00004550 -or $Machine -ne 0x8664) {
+  $Message = 'Architecture validation failed: expected an x64 PE image, signature={0:X8}, machine={1:X4}' `
+    -f $PeSignature, $Machine
+  throw $Message
 }
 
 New-Item -ItemType Directory -Force -Path $DistDirectory | Out-Null
