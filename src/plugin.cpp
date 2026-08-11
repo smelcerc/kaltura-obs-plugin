@@ -2,6 +2,7 @@
 
 #include "kaltura_live/kaltura_dock.hpp"
 #include "kaltura_live/logger.hpp"
+#include "kaltura_live/platform/platform.hpp"
 #include "kaltura_live/settings_dialog.hpp"
 #include "kaltura_live/captions/caption_manager.hpp"
 #include "kaltura_live/captions/cea608_caption_inserter.hpp"
@@ -15,7 +16,6 @@
 #include <QAction>
 #include <QCoreApplication>
 #include <QDir>
-#include <QFileInfo>
 #include <QIcon>
 #include <QMainWindow>
 #include <QMetaObject>
@@ -68,24 +68,13 @@ bool Plugin::initialize()
     return false;
   }
 
-#ifdef __APPLE__
   const char *moduleBinaryPath = obs_get_module_binary_path(obs_current_module());
-  if (moduleBinaryPath) {
-    QDir contentsDirectory = QFileInfo(QString::fromUtf8(moduleBinaryPath)).absoluteDir();
-    if (contentsDirectory.cdUp()) {
-      qtPluginPath_ = contentsDirectory.filePath("PlugIns").toUtf8().toStdString();
-      whisperModelsPath_ =
-        contentsDirectory.filePath("Resources/models").toUtf8().toStdString();
-      QCoreApplication::addLibraryPath(QString::fromUtf8(qtPluginPath_));
-    }
-  }
-#endif
-  if (whisperModelsPath_.empty()) {
-    const char *moduleDataPath = obs_get_module_data_path(obs_current_module());
-    if (moduleDataPath) {
-      whisperModelsPath_ =
-        QDir(QString::fromUtf8(moduleDataPath)).filePath("models").toUtf8().toStdString();
-    }
+  const char *moduleDataPath = obs_get_module_data_path(obs_current_module());
+  platform::RuntimePaths paths = platform::runtimePaths(moduleBinaryPath, moduleDataPath);
+  qtPluginPath_ = std::move(paths.qtPluginDirectory);
+  whisperModelsPath_ = std::move(paths.modelDirectory);
+  if (!qtPluginPath_.empty()) {
+    QCoreApplication::addLibraryPath(QString::fromUtf8(qtPluginPath_));
   }
 
   const QStringList availableTlsBackends = QSslSocket::availableBackends();

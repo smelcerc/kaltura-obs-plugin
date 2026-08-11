@@ -5,7 +5,33 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 version="$(tr -d '[:space:]' < "${project_dir}/VERSION")"
 build_dir="${BUILD_DIR:-${project_dir}/build-release-macos}"
 dist_dir="${DIST_DIR:-${project_dir}/dist}"
-qt_prefix="${QT_PREFIX:-/usr/local/opt/qtbase}"
+if [[ -n "${QT_PREFIX:-}" ]]; then
+  qt_prefix="${QT_PREFIX}"
+elif command -v brew >/dev/null 2>&1; then
+  qt_prefix=""
+  for formula in qt qtbase qt@6; do
+    candidate="$(brew --prefix "${formula}" 2>/dev/null || true)"
+    if [[ -x "${candidate}/bin/qtpaths" || -x "${candidate}/bin/qtpaths6" ]]; then
+      qt_prefix="${candidate}"
+      break
+    fi
+  done
+else
+  echo "error: set QT_PREFIX to the Qt 6 installation used by OBS" >&2
+  exit 1
+fi
+qtpaths=""
+for candidate in "${qt_prefix}/bin/qtpaths" "${qt_prefix}/bin/qtpaths6"; do
+  if [[ -x "${candidate}" ]]; then
+    qtpaths="${candidate}"
+    break
+  fi
+done
+if [[ -z "${qtpaths}" ]]; then
+  echo "error: no qtpaths executable found below QT_PREFIX=${qt_prefix}" >&2
+  exit 1
+fi
+macos_architectures="${MACOS_ARCHITECTURES:-$(uname -m)}"
 model_dir="${KALTURA_LIVE_MODEL_SOURCE_DIR:-${build_dir}/release-models}"
 skip_models=false
 if [[ "${1:-}" == "--without-models" ]]; then
@@ -14,11 +40,12 @@ fi
 
 obs_source="${KALTURA_LIVE_OBS_SOURCE_PATH:-${project_dir}/third_party/obs-studio}"
 if [[ ! -f "${obs_source}/libobs/obs-module.h" ]]; then
-  git clone --depth 1 --branch "${OBS_VERSION:-32.2.1}" \
+  git clone --depth 1 --branch "${OBS_VERSION:-32.1.2}" \
     https://github.com/obsproject/obs-studio.git "${obs_source}"
 fi
 cmake -S "${project_dir}" -B "${build_dir}" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_ARCHITECTURES="${macos_architectures}" \
   -DCMAKE_PREFIX_PATH="${qt_prefix}" \
   -DKALTURA_LIVE_OBS_SOURCE_PATH="${obs_source}" \
   -DKALTURA_LIVE_OBS_APP_FRAMEWORK_PATH=/Applications/OBS.app/Contents/Frameworks
@@ -26,9 +53,11 @@ cmake --build "${build_dir}" --parallel
 ctest --test-dir "${build_dir}" --output-on-failure
 
 binary="${build_dir}/libkaltura-live.so"
+"${project_dir}/scripts/validate-architecture.sh" macos "${binary}" \
+  "${macos_architectures}"
 
-qt_plugin_dir="$(${qt_prefix}/bin/qtpaths --plugin-dir)"
-qt_version="$(${qt_prefix}/bin/qtpaths --qt-version)"
+qt_plugin_dir="$(${qtpaths} --plugin-dir)"
+qt_version="$(${qtpaths} --qt-version)"
 obs_qt_version="$(plutil -extract CFBundleVersion raw \
   /Applications/OBS.app/Contents/Frameworks/QtCore.framework/Versions/A/Resources/Info.plist)"
 if [[ "${qt_version}" != "${obs_qt_version}" ]]; then
@@ -74,7 +103,8 @@ xattr -cr "${bundle}"
 codesign --verify --deep --strict "${bundle}"
 xattr -cr "${staging_dir}/root"
 
-archive="${dist_dir}/kaltura-live-${version}-macos.tar.gz"
+artifact_arch="${macos_architectures//;/_}"
+archive="${dist_dir}/kaltura-live-${version}-macOS-${artifact_arch}.tar.gz"
 COPYFILE_DISABLE=1 tar -C "$(dirname "${bundle}")" -czf "${archive}" "$(basename "${bundle}")"
 
 unsigned_pkg="${staging_dir}/kaltura-live-unsigned.pkg"
@@ -89,7 +119,7 @@ COPYFILE_DISABLE=1 pkgbuild --root "${staging_dir}/root" \
   --version "${version}" \
   --install-location / \
   "${unsigned_pkg}"
-package="${dist_dir}/kaltura-live-${version}-macos.pkg"
+package="${dist_dir}/kaltura-live-${version}-macOS-${artifact_arch}.pkg"
 if [[ -n "${MACOS_INSTALLER_SIGNING_IDENTITY:-}" ]]; then
   productsign --sign "${MACOS_INSTALLER_SIGNING_IDENTITY}" "${unsigned_pkg}" "${package}"
 else

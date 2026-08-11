@@ -6,7 +6,7 @@ build_dir="${BUILD_DIR:-${project_dir}/build-linux}"
 dist_dir="${DIST_DIR:-${project_dir}/dist}"
 package_output_dir="${build_dir}/cpack-output"
 model_dir="${KALTURA_LIVE_MODEL_SOURCE_DIR:-${build_dir}/release-models}"
-obs_version="${OBS_VERSION:-32.2.1}"
+obs_version="${OBS_VERSION:-32.1.2}"
 obs_source="${KALTURA_LIVE_OBS_SOURCE_PATH:-${project_dir}/third_party/obs-studio}"
 
 for command in cmake cpack curl file git ninja shasum; do
@@ -26,6 +26,8 @@ cmake -S "${project_dir}" -B "${build_dir}" -G Ninja \
   -DKALTURA_LIVE_OBS_SOURCE_PATH="${obs_source}" \
   -DKALTURA_LIVE_MODEL_SOURCE_DIR="${model_dir}"
 cmake --build "${build_dir}" --parallel
+"${project_dir}/scripts/validate-architecture.sh" linux \
+  "${build_dir}/libkaltura-live.so" x86_64
 ctest --test-dir "${build_dir}" --output-on-failure
 mkdir -p "${dist_dir}" "${package_output_dir}"
 (cd "${build_dir}" && cpack -B "${package_output_dir}")

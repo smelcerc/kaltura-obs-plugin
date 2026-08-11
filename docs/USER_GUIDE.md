@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- OBS Studio 32.2 or newer
+- OBS Studio 32.0 or newer
 - macOS 12+ or a supported 64-bit Linux distribution
 - A valid Kaltura Session with access to the relevant live entries
 - Enough CPU for local Whisper transcription when captions are enabled

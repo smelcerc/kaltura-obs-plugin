@@ -3,7 +3,31 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-${ROOT_DIR}/build}"
-QT_PREFIX="${QT_PREFIX:-/usr/local/opt/qtbase}"
+if [ -z "${QT_PREFIX:-}" ]; then
+  if command -v brew >/dev/null 2>&1; then
+    for formula in qt qtbase qt@6; do
+      candidate="$(brew --prefix "${formula}" 2>/dev/null || true)"
+      if [ -x "${candidate}/bin/qtpaths" ] || [ -x "${candidate}/bin/qtpaths6" ]; then
+        QT_PREFIX="${candidate}"
+        break
+      fi
+    done
+  else
+    echo "error: set QT_PREFIX to the Qt 6 installation used by OBS"
+    exit 1
+  fi
+fi
+QTPATHS=""
+for candidate in "${QT_PREFIX}/bin/qtpaths" "${QT_PREFIX}/bin/qtpaths6"; do
+  if [ -x "${candidate}" ]; then
+    QTPATHS="${candidate}"
+    break
+  fi
+done
+if [ -z "${QTPATHS}" ]; then
+  echo "error: no qtpaths executable found below QT_PREFIX=${QT_PREFIX}"
+  exit 1
+fi
 OBS_HEADERS_DIR="${OBS_HEADERS_DIR:-${ROOT_DIR}/third_party/obs-studio}"
 OBS_APP_DIR="${OBS_APP_DIR:-/Applications/OBS.app}"
 OBS_FRAMEWORKS_DIR="${OBS_APP_DIR}/Contents/Frameworks"
@@ -14,7 +38,7 @@ PLUGIN_INFO_PLIST_PATH="${PLUGIN_BUNDLE_DIR}/Contents/Info.plist"
 PLUGIN_TLS_DIR="${PLUGIN_BUNDLE_DIR}/Contents/PlugIns/tls"
 PLUGIN_MODELS_DIR="${PLUGIN_BUNDLE_DIR}/Contents/Resources/models"
 PLUGIN_VERSION="$(tr -d '[:space:]' < "${ROOT_DIR}/VERSION")"
-QT_PLUGIN_DIR="$(${QT_PREFIX}/bin/qtpaths --plugin-dir)"
+QT_PLUGIN_DIR="$(${QTPATHS} --plugin-dir)"
 QT_TLS_BACKEND_PATH="${QT_PLUGIN_DIR}/tls/libqsecuretransportbackend.dylib"
 JOBS="${JOBS:-4}"
 
@@ -43,7 +67,7 @@ if [ ! -f "${QT_TLS_BACKEND_PATH}" ]; then
   exit 1
 fi
 
-QT_VERSION="$(${QT_PREFIX}/bin/qtpaths --qt-version)"
+QT_VERSION="$(${QTPATHS} --qt-version)"
 OBS_QT_VERSION="$(plutil -extract CFBundleVersion raw \
   "${OBS_FRAMEWORKS_DIR}/QtCore.framework/Versions/A/Resources/Info.plist")"
 if [ "${QT_VERSION}" != "${OBS_QT_VERSION}" ]; then

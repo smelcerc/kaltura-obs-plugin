@@ -21,15 +21,16 @@ queued Qt invocations.
 - Ninja
 - C++20 compiler
 - Qt 6 Core, Gui, Network, and Widgets development files
-- OBS Studio 32.2+ development packages, or OBS.app plus matching OBS source headers on macOS
+- OBS Studio 32.0+ development packages, or OBS.app plus matching OBS source headers on macOS
 - SIMDe headers (required by OBS 32 on Intel)
 - Git and curl for dependency/model retrieval
+- libsecret development files on Linux
 - The `file` and `dpkg-dev` packages for Debian release packaging
 
 `whisper.cpp` is pinned by CMake. OBS source is intentionally ignored and must be cloned locally:
 
 ```bash
-git clone --depth 1 --branch 32.2.1 https://github.com/obsproject/obs-studio.git third_party/obs-studio
+git clone --depth 1 --branch 32.1.2 https://github.com/obsproject/obs-studio.git third_party/obs-studio
 ```
 
 ## macOS
@@ -44,6 +45,9 @@ brew install cmake ninja qtbase simde
 The Qt development version must exactly match OBS's bundled Qt runtime. The deploy script rejects
 external Qt runtime linkage, patches relocatable rpaths, verifies architecture, and ad-hoc signs
 the local bundle.
+
+Platform-specific prerequisites and commands are in [BUILD_MACOS.md](BUILD_MACOS.md),
+[BUILD_WINDOWS.md](BUILD_WINDOWS.md), and [BUILD_LINUX.md](BUILD_LINUX.md).
 
 ## Linux
 

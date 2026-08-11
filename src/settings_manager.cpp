@@ -1,12 +1,17 @@
 #include "kaltura_live/settings_manager.hpp"
+#include "kaltura_live/logger.hpp"
+#include "kaltura_live/platform/platform.hpp"
 
 #include <obs-module.h>
+
+#include <QUuid>
 
 #include <algorithm>
 
 namespace {
 constexpr const char *kSettingsRootKey = "kaltura_live";
 constexpr const char *kKalturaSessionKey = "kaltura_session";
+constexpr const char *kCredentialIdKey = "credential_id";
 constexpr const char *kSelectedEntryIdKey = "selected_entry_id";
 constexpr const char *kSelectedEntryNameKey = "selected_entry_name";
 constexpr const char *kSelectedEntryDescriptionKey = "selected_entry_description";
@@ -109,9 +114,25 @@ bool validDictionaryField(std::string_view value, bool allowEmpty = false)
            return character >= 0x20 && character != 0x7f;
          });
 }
+
+bool validCredentialId(std::string_view value)
+{
+  return value.size() == 36 &&
+         std::all_of(value.begin(), value.end(), [](unsigned char character) {
+           return (character >= 'a' && character <= 'f') ||
+                  (character >= '0' && character <= '9') || character == '-';
+         });
+}
 }
 
 namespace kaltura_live {
+
+SettingsManager::SettingsManager()
+  : credentialStore_(platform::createCredentialStore())
+{
+}
+
+SettingsManager::~SettingsManager() = default;
 
 bool isValidKalturaSession(std::string_view value)
 {
@@ -129,6 +150,9 @@ bool isValidKalturaSession(std::string_view value)
 
 void SettingsManager::load(obs_data_t *rootData)
 {
+  settings_.kalturaSession.clear();
+  credentialId_.clear();
+  persistedSession_.clear();
   if (!rootData) {
     return;
   }
@@ -138,8 +162,26 @@ void SettingsManager::load(obs_data_t *rootData)
     return;
   }
 
-  const char *session = obs_data_get_string(pluginData, kKalturaSessionKey);
-  settings_.kalturaSession = session && isValidKalturaSession(session) ? session : "";
+  const std::string credentialId = obs_data_get_string(pluginData, kCredentialIdKey);
+  if (validCredentialId(credentialId)) {
+    credentialId_ = credentialId;
+    if (credentialStore_) {
+      const std::optional<std::string> stored = credentialStore_->load(credentialId_);
+      if (stored && isValidKalturaSession(*stored)) {
+        settings_.kalturaSession = *stored;
+        persistedSession_ = *stored;
+      }
+    }
+  }
+
+  // Migrate legacy profile data once. The next OBS save omits this field even if
+  // secure storage is unavailable, so a KS is never left in plaintext.
+  const char *legacySession = obs_data_get_string(pluginData, kKalturaSessionKey);
+  if (settings_.kalturaSession.empty() && legacySession &&
+      isValidKalturaSession(legacySession)) {
+    settings_.kalturaSession = legacySession;
+    persistSession();
+  }
   settings_.selectedEntryId = obs_data_get_string(pluginData, kSelectedEntryIdKey);
   settings_.selectedEntryName = obs_data_get_string(pluginData, kSelectedEntryNameKey);
   settings_.selectedEntryDescription =
@@ -242,7 +284,9 @@ void SettingsManager::save(obs_data_t *rootData) const
   }
 
   obs_data_t *pluginData = obs_data_create();
-  obs_data_set_string(pluginData, kKalturaSessionKey, settings_.kalturaSession.c_str());
+  if (!credentialId_.empty()) {
+    obs_data_set_string(pluginData, kCredentialIdKey, credentialId_.c_str());
+  }
   obs_data_set_string(pluginData, kSelectedEntryIdKey, settings_.selectedEntryId.c_str());
   obs_data_set_string(pluginData, kSelectedEntryNameKey, settings_.selectedEntryName.c_str());
   obs_data_set_string(pluginData, kSelectedEntryDescriptionKey,
@@ -303,12 +347,40 @@ void SettingsManager::update(const PluginSettings &updated)
   if (!settings_.kalturaSession.empty() && !isValidKalturaSession(settings_.kalturaSession)) {
     settings_.kalturaSession.clear();
   }
+  persistSession();
   if (!settings_.selectedEntryId.empty() && !validEntryId(settings_.selectedEntryId)) {
     settings_.selectedEntryId.clear();
     settings_.selectedEntryName.clear();
     settings_.selectedEntryDescription.clear();
     settings_.selectedEntryThumbnailUrl.clear();
     settings_.selectedEntryStatus = 0;
+  }
+}
+
+void SettingsManager::persistSession()
+{
+  if (!credentialStore_ || settings_.kalturaSession == persistedSession_) {
+    return;
+  }
+  if (credentialId_.empty() && !settings_.kalturaSession.empty()) {
+    credentialId_ = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+  }
+  const bool stored = settings_.kalturaSession.empty()
+                        ? credentialId_.empty() || credentialStore_->remove(credentialId_)
+                        : credentialStore_->save(credentialId_, settings_.kalturaSession);
+  if (stored) {
+    persistedSession_ = settings_.kalturaSession;
+    if (settings_.kalturaSession.empty()) {
+      credentialId_.clear();
+    }
+    Logger::write(LogLevel::Info,
+                  std::string("Kaltura Session updated in ") +
+                    credentialStore_->backendName());
+  } else {
+    Logger::write(LogLevel::Warning,
+                  std::string("Kaltura Session could not be persisted securely using ") +
+                    credentialStore_->backendName() +
+                    "; it will remain available only for this OBS process");
   }
 }
 

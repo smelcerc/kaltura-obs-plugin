@@ -6,14 +6,18 @@ if [[ "${CI:-}" != true || -z "${RUNNER_TEMP:-}" || -z "${GITHUB_ENV:-}" ]]; the
   exit 1
 fi
 
-obs_version="${OBS_VERSION:-32.2.1}"
+obs_version="${OBS_VERSION:-32.1.2}"
 obs_arch="${OBS_MACOS_ARCH:-Intel}"
-if [[ "${obs_version}" != 32.2.1 || "${obs_arch}" != Intel ]]; then
+if [[ "${obs_version}" != 32.1.2 || ( "${obs_arch}" != Intel && "${obs_arch}" != Apple ) ]]; then
   echo "error: no verified OBS checksum is configured for ${obs_version} ${obs_arch}" >&2
   exit 1
 fi
 
-obs_sha256="6900a7a6d4422956114cac3c148d871307fdb0530160c2cbb4e97f624c9f85a5"
+if [[ "${obs_arch}" == Intel ]]; then
+  obs_sha256="f7febee4c52e97930ffa9d8bcae79ee4c60c411827688cfbe36bc53edc51616e"
+else
+  obs_sha256="2aeb3aaa99544fefd557f10ac6550e73df71540dd57528b2a1e6f39a55ebacfb"
+fi
 obs_dmg="${RUNNER_TEMP}/OBS-Studio-${obs_version}-macOS-${obs_arch}.dmg"
 obs_mount="${RUNNER_TEMP}/obs-mount"
 

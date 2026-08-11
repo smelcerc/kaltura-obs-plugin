@@ -4,11 +4,16 @@
 
 #include <obs-data.h>
 
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace kaltura_live {
+
+namespace platform {
+class CredentialStore;
+}
 
 enum class StreamingEndpoint {
   Primary,
@@ -74,6 +79,11 @@ struct PluginSettings {
 
 class SettingsManager {
 public:
+  SettingsManager();
+  ~SettingsManager();
+  SettingsManager(const SettingsManager &) = delete;
+  SettingsManager &operator=(const SettingsManager &) = delete;
+
   void load(obs_data_t *rootData);
   void save(obs_data_t *rootData) const;
 
@@ -81,7 +91,12 @@ public:
   void update(const PluginSettings &updated);
 
 private:
+  void persistSession();
+
   PluginSettings settings_{};
+  std::unique_ptr<platform::CredentialStore> credentialStore_;
+  std::string credentialId_;
+  std::string persistedSession_;
 };
 
 }  // namespace kaltura_live
