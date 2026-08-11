@@ -140,11 +140,24 @@ jobs:
           path: input/arm64
       - name: Merge and validate Universal 2 bundle
         run: |
-          mkdir -p unpack/x86_64 unpack/arm64 dist
-          tar -xzf input/x86_64/*-macOS-x86_64.tar.gz -C unpack/x86_64
-          tar -xzf input/arm64/*-macOS-arm64.tar.gz -C unpack/arm64
-          ./scripts/package-macos-universal.sh \
-            unpack/x86_64/kaltura-live.plugin unpack/arm64/kaltura-live.plugin dist
+          set +e
+          (set -e
+           mkdir -p unpack/x86_64 unpack/arm64 dist
+           tar -xzf input/x86_64/*-macOS-x86_64.tar.gz -C unpack/x86_64
+           tar -xzf input/arm64/*-macOS-arm64.tar.gz -C unpack/arm64
+           ./scripts/package-macos-universal.sh \
+             unpack/x86_64/kaltura-live.plugin unpack/arm64/kaltura-live.plugin dist) \
+            2>&1 | tee macos-universal.log
+          result=${PIPESTATUS[0]}
+          set -e
+          if (( result != 0 )); then
+            diagnostic="$(tail -100 macos-universal.log | tail -c 6000)"
+            diagnostic="${diagnostic//'%'/'%25'}"
+            diagnostic="${diagnostic//$'\r'/'%0D'}"
+            diagnostic="${diagnostic//$'\n'/'%0A'}"
+            echo "::error title=Universal macOS merge failed::${diagnostic}"
+            exit "${result}"
+          fi
       - uses: actions/upload-artifact@v7
         with:
           name: kaltura-live-macos-universal
