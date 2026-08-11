@@ -36,6 +36,22 @@ constexpr const char *kOpenDockMenuTitle = "Open Kaltura Live";
 
 namespace kaltura_live {
 
+namespace {
+
+OutputRole frontendRoleFor(StreamingEndpoint endpoint)
+{
+  return endpoint == StreamingEndpoint::Backup ? OutputRole::Backup
+                                                : OutputRole::Primary;
+}
+
+void applyEndpointSelection(PluginSettings &settings)
+{
+  settings.primaryOutput.enabled = settings.preferredEndpoint != StreamingEndpoint::Backup;
+  settings.backupOutput.enabled = settings.preferredEndpoint != StreamingEndpoint::Primary;
+}
+
+}  // namespace
+
 Plugin::Plugin() = default;
 Plugin::~Plugin()
 {
@@ -324,6 +340,8 @@ void Plugin::showSettingsDialog()
     return;
   }
 
+  const StreamingEndpoint endpointBeforeDialog =
+    settingsManager_.settings().preferredEndpoint;
   SettingsDialog dialog(
     settingsManager_.settings(), *apiClient_,
     [this](const api::StreamConfiguration &configuration, StreamingEndpoint endpoint,
@@ -337,8 +355,7 @@ void Plugin::showSettingsDialog()
   const int dialogResult = dialog.exec();
   activeSettingsDialog_ = nullptr;
   if (dialogResult == QDialog::Accepted) {
-    const StreamingEndpoint previousEndpoint =
-      settingsManager_.settings().preferredEndpoint;
+    const StreamingEndpoint previousEndpoint = endpointBeforeDialog;
     const auto previousDictionary = settingsManager_.settings().captionDictionary;
     PluginSettings selectedSettings = dialog.selectedSettings();
     selectedSettings.primaryOutput = settingsManager_.settings().primaryOutput;
@@ -350,6 +367,7 @@ void Plugin::showSettingsDialog()
         mainWindow_, "Stop Streaming to Change Endpoint",
         "Stop every active output before changing between Primary, Backup, and Both.");
     }
+    applyEndpointSelection(selectedSettings);
     settingsManager_.update(selectedSettings);
     const bool endpointChanged =
       settingsManager_.settings().preferredEndpoint != previousEndpoint;
@@ -612,7 +630,9 @@ void Plugin::updateOutputConfiguration(OutputRole role, const StreamOutputConfig
         settingsManager_.settings().backupOutput);
     return;
   }
-  if (role == OutputRole::Primary && !updateFrontendStreamSettings(config, failure)) {
+  const OutputRole frontendRole = frontendRoleFor(
+    settingsManager_.settings().preferredEndpoint);
+  if (role == frontendRole && !updateFrontendStreamSettings(config, failure)) {
     QMessageBox::warning(mainWindow_, "Could Not Update OBS Stream Settings",
                          QString::fromUtf8(failure));
     return;
@@ -746,13 +766,18 @@ void Plugin::restoreStreamingConfiguration()
       OutputRole::Primary, settings.primaryOutput, failure);
     if (!primaryReady)
       Logger::write(LogLevel::Warning, "Could not restore Primary output: " + failure);
-    else if (!updateFrontendStreamSettings(settings.primaryOutput, failure))
-      Logger::write(LogLevel::Warning, "Could not restore OBS Stream settings: " + failure);
     failure.clear();
     const bool backupReady = streamingManager_->configureOutput(
       OutputRole::Backup, settings.backupOutput, failure);
     if (!backupReady)
       Logger::write(LogLevel::Warning, "Could not restore Backup output: " + failure);
+    failure.clear();
+    const OutputRole frontendRole = frontendRoleFor(settings.preferredEndpoint);
+    const bool frontendReady = frontendRole == OutputRole::Backup ? backupReady : primaryReady;
+    const StreamOutputConfig &frontendConfiguration = frontendRole == OutputRole::Backup
+      ? settings.backupOutput : settings.primaryOutput;
+    if (frontendReady && !updateFrontendStreamSettings(frontendConfiguration, failure))
+      Logger::write(LogLevel::Warning, "Could not restore OBS Stream settings: " + failure);
     updateStreamingHealth();
     return;
   }
@@ -783,9 +808,9 @@ void Plugin::restoreStreamingConfiguration()
         Logger::write(LogLevel::Warning,
                       "Could not restore Kaltura output routing: " + failure);
       } else {
-        const StreamOutputConfig primaryConfiguration =
-          streamingManager_->outputConfiguration(OutputRole::Primary);
-        if (!updateFrontendStreamSettings(primaryConfiguration, failure))
+        const StreamOutputConfig frontendConfiguration =
+          streamingManager_->outputConfiguration(frontendRoleFor(endpoint));
+        if (!updateFrontendStreamSettings(frontendConfiguration, failure))
           Logger::write(LogLevel::Warning,
                         "Could not synchronize OBS Stream settings: " + failure);
       }
@@ -810,13 +835,14 @@ bool Plugin::applyObsStreamSettings(const api::StreamConfiguration &configuratio
   if (!streamingManager_->configure(configuration, endpoint, failure)) {
     return false;
   }
-  const StreamOutputConfig primaryConfiguration =
-    streamingManager_->outputConfiguration(OutputRole::Primary);
-  if (!updateFrontendStreamSettings(primaryConfiguration, failure)) {
+  const StreamOutputConfig frontendConfiguration =
+    streamingManager_->outputConfiguration(frontendRoleFor(endpoint));
+  if (!updateFrontendStreamSettings(frontendConfiguration, failure)) {
     streamingManager_->clearConfiguration();
     return false;
   }
   PluginSettings updated = settingsManager_.settings();
+  updated.preferredEndpoint = endpoint;
   updated.primaryOutput = streamingManager_->outputConfiguration(OutputRole::Primary);
   updated.backupOutput = streamingManager_->outputConfiguration(OutputRole::Backup);
   settingsManager_.update(updated);

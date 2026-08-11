@@ -1,4 +1,5 @@
 #include "kaltura_live/stream_output_config.hpp"
+#include "kaltura_live/kaltura_player_embed.hpp"
 
 #include <cassert>
 #include <string>
@@ -57,5 +58,14 @@ int main()
     "srt://oaa4j4vh.p.srt.publish.live.kaltura.com:7045"
     "?streamid=synthetic-stream-id&latency=3000000") ==
     "srt://oaa4j4vh.p.srt.publish.live.kaltura.com:7045");
+  const std::string playerHtml = buildKalturaPlayerHtml(
+    4'681'382, "1_test'entry", "ks-value\"with-quote");
+  assert(playerHtml.find("/p/4681382/embedPlaykitJs/uiconf_id/58233132") !=
+         std::string::npos);
+  assert(playerHtml.find("width:200%;height:200%") != std::string::npos);
+  assert(playerHtml.find("transform:scale(.5)") != std::string::npos);
+  assert(playerHtml.find("partnerId:4681382,uiConfId:58233132") != std::string::npos);
+  assert(playerHtml.find("entryId:\"1_test'entry\"") != std::string::npos);
+  assert(playerHtml.find("ks:\"ks-value\\\"with-quote\"") != std::string::npos);
   return 0;
 }

@@ -74,13 +74,13 @@ public:
 
   ~Impl() { shutdown(); }
 
-  bool configure(const api::StreamConfiguration &source, StreamingEndpoint,
+  bool configure(const api::StreamConfiguration &source, StreamingEndpoint endpoint,
                  std::string &failure)
   {
     StreamOutputConfig primaryConfig = mapKalturaOutput(source, OutputRole::Primary);
     StreamOutputConfig backupConfig = mapKalturaOutput(source, OutputRole::Backup);
-    primaryConfig.enabled = true;
-    backupConfig.enabled = true;
+    primaryConfig.enabled = endpoint != StreamingEndpoint::Backup;
+    backupConfig.enabled = endpoint != StreamingEndpoint::Primary;
     return configureSlot(primary, primaryConfig, failure) &&
            configureSlot(backup, backupConfig, failure);
   }

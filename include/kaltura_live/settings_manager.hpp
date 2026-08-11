@@ -5,6 +5,7 @@
 
 #include <obs-data.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -58,6 +59,7 @@ enum class WhisperModel {
 
 struct PluginSettings {
   std::string kalturaSession;
+  std::int64_t partnerId = 0;
   std::string selectedEntryId;
   std::string selectedEntryName;
   std::string selectedEntryDescription;

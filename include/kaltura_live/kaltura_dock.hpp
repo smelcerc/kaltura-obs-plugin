@@ -16,11 +16,12 @@ class QComboBox;
 class QSpinBox;
 class QPushButton;
 class QToolButton;
-class QNetworkAccessManager;
 class QPlainTextEdit;
 class QLineEdit;
 
 namespace kaltura_live {
+
+class KalturaPlayerPreview;
 
 class KalturaDock : public QWidget {
 public:
@@ -53,7 +54,6 @@ public:
   void setCaptionHealth(const captions::CaptionHealth &health);
 
 private:
-  void loadEntryThumbnail(const QString &url);
   void populateCaptionSegments(const captions::CaptionHealth &health);
   struct OutputEditor {
     QCheckBox *enabled = nullptr;
@@ -86,7 +86,7 @@ private:
   [[nodiscard]] StreamOutputConfig outputEditorConfig(const OutputEditor &editor) const;
 
   QLabel *statusValue_ = nullptr;
-  QLabel *thumbnailValue_ = nullptr;
+  KalturaPlayerPreview *entryPlayer_ = nullptr;
   QLabel *entryNameValue_ = nullptr;
   QLabel *entryIdValue_ = nullptr;
   QLabel *entryDescriptionValue_ = nullptr;
@@ -107,9 +107,6 @@ private:
   QToolButton *captionPreviewToggle_ = nullptr;
   QWidget *captionPreviewContent_ = nullptr;
   QPlainTextEdit *captionSegments_ = nullptr;
-  QNetworkAccessManager *thumbnailNetwork_ = nullptr;
-  QString currentThumbnailUrl_;
-  quint64 thumbnailRequestId_ = 0;
   int programDelaySeconds_ = 0;
   uint64_t latestCaptionSequence_ = 0;
   uint64_t captionPreviewStartSequence_ = 0;

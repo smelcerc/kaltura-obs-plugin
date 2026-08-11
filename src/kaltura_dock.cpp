@@ -1,4 +1,8 @@
 #include "kaltura_live/kaltura_dock.hpp"
+#include "kaltura_live/kaltura_player_embed.hpp"
+
+#include <obs-module.h>
+#include <util/platform.h>
 
 #include <QColor>
 #include <QApplication>
@@ -11,25 +15,204 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QHBoxLayout>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QNetworkRequest>
-#include <QPixmap>
+#include <QHostAddress>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSignalBlocker>
 #include <QSpinBox>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTextCursor>
 #include <QToolButton>
 #include <QVBoxLayout>
-#include <QUrl>
+#include <QUuid>
 #include <QWheelEvent>
 
 #include <algorithm>
 
 namespace kaltura_live {
+
+class BrowserPanelWidget : public QWidget {
+public:
+  virtual void setURL(const std::string &url) = 0;
+  virtual void setStartupScript(const std::string &script) = 0;
+  virtual void allowAllPopups(bool allow) = 0;
+  virtual void closeBrowser() = 0;
+  virtual void reloadPage() = 0;
+  virtual bool zoomPage(int direction) = 0;
+  virtual void executeJavaScript(const std::string &script) = 0;
+};
+
+struct BrowserPanelCookieManager;
+
+struct BrowserPanelApi {
+  virtual ~BrowserPanelApi() = default;
+  virtual bool init_browser() = 0;
+  virtual bool initialized() = 0;
+  virtual bool wait_for_browser_init() = 0;
+  virtual BrowserPanelWidget *create_widget(
+    QWidget *parent, const std::string &url,
+    BrowserPanelCookieManager *cookieManager = nullptr) = 0;
+};
+
+class KalturaPlayerPreview final : public QWidget {
+public:
+  explicit KalturaPlayerPreview(QWidget *parent = nullptr) : QWidget(parent)
+  {
+    setFixedSize(240, 135);
+    layout_ = new QVBoxLayout(this);
+    layout_->setContentsMargins(0, 0, 0, 0);
+    layout_->setSpacing(0);
+
+    placeholder_ = new QLabel("Validate a KS and select a live entry", this);
+    placeholder_->setAlignment(Qt::AlignCenter);
+    placeholder_->setWordWrap(true);
+    placeholder_->setStyleSheet(
+      "QLabel { border: 1px solid palette(mid); border-radius: 6px; "
+      "background-color: palette(alternate-base); color: palette(mid); "
+      "padding: 4px; }");
+    layout_->addWidget(placeholder_);
+
+    connect(&pageServer_, &QTcpServer::newConnection, this, [this] {
+      while (QTcpSocket *socket = pageServer_.nextPendingConnection()) {
+        connect(socket, &QTcpSocket::readyRead, socket, [this, socket] {
+          QByteArray request = socket->property("kalturaRequest").toByteArray();
+          request += socket->readAll();
+          if (!request.contains("\r\n\r\n")) {
+            socket->setProperty("kalturaRequest", request);
+            return;
+          }
+          if (socket->property("kalturaResponded").toBool()) return;
+          socket->setProperty("kalturaResponded", true);
+          const bool found =
+            request.startsWith("GET " + pagePath_.toUtf8() + " ");
+          const QByteArray body = found ? playerHtml_ : QByteArray("Not found");
+          QByteArray response = found ? "HTTP/1.1 200 OK\r\n"
+                                      : "HTTP/1.1 404 Not Found\r\n";
+          response += "Content-Type: text/html; charset=utf-8\r\n";
+          response += "Cache-Control: no-store, no-cache, must-revalidate\r\n";
+          response += "Content-Security-Policy: default-src 'self' https: data: blob:; "
+                      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; "
+                      "style-src 'self' 'unsafe-inline' https:; "
+                      "connect-src 'self' https: wss:; media-src https: blob:; "
+                      "img-src https: data: blob:\r\n";
+          response += "Content-Length: " + QByteArray::number(body.size()) +
+                      "\r\nConnection: close\r\n\r\n";
+          socket->write(response + body);
+          socket->disconnectFromHost();
+        });
+      }
+    });
+  }
+
+  ~KalturaPlayerPreview() override
+  {
+    destroyBrowser();
+    delete browserApi_;
+  }
+
+  void setPlayer(std::int64_t partnerId, const std::string &entryId,
+                 const std::string &session)
+  {
+    if (partnerId <= 0 || entryId.empty() || session.empty()) {
+      playerHtml_.clear();
+      pagePath_.clear();
+      destroyBrowser();
+      showPlaceholder("Validate a KS and select a live entry");
+      return;
+    }
+
+    const QByteArray html = QByteArray::fromStdString(
+      buildKalturaPlayerHtml(partnerId, entryId, session));
+    if (browserWidget_ && html == playerHtml_) return;
+    if (!pageServer_.isListening() &&
+        !pageServer_.listen(QHostAddress::LocalHost, 0)) {
+      destroyBrowser();
+      showPlaceholder("Unable to start the local Kaltura player");
+      return;
+    }
+
+    playerHtml_ = html;
+    pagePath_ = "/player/" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const std::string url =
+      QString("http://127.0.0.1:%1%2")
+        .arg(pageServer_.serverPort())
+        .arg(pagePath_)
+        .toStdString();
+    if (!ensureBrowserApi()) {
+      destroyBrowser();
+      showPlaceholder("Kaltura player unavailable\nEnable OBS Browser Source");
+      return;
+    }
+
+    destroyBrowser();
+    browserWidget_ = browserApi_->create_widget(this, url, nullptr);
+    if (!browserWidget_) {
+      showPlaceholder("Unable to create the Kaltura player");
+      return;
+    }
+    browserWidget_->setFixedSize(size());
+    browserWidget_->setFocusPolicy(Qt::StrongFocus);
+    layout_->addWidget(browserWidget_);
+    placeholder_->hide();
+    browserWidget_->show();
+  }
+
+  void refreshPlayer()
+  {
+    if (browserWidget_) browserWidget_->reloadPage();
+  }
+
+private:
+  bool ensureBrowserApi()
+  {
+    if (browserApi_) return true;
+    obs_module_t *module = obs_get_module("obs-browser");
+    void *library = module ? obs_get_module_lib(module) : nullptr;
+    if (!library) return false;
+
+    using CreateBrowserApi = BrowserPanelApi *(*)();
+    using BrowserApiVersion = int (*)();
+    auto createApi = reinterpret_cast<CreateBrowserApi>(
+      os_dlsym(library, "obs_browser_create_qcef"));
+    auto apiVersion = reinterpret_cast<BrowserApiVersion>(
+      os_dlsym(library, "obs_browser_qcef_version_export"));
+    if (!createApi || !apiVersion || apiVersion() < 1) return false;
+    browserApi_ = createApi();
+    if (!browserApi_) return false;
+    if (!browserApi_->initialized() && !browserApi_->init_browser()) {
+      delete browserApi_;
+      browserApi_ = nullptr;
+      return false;
+    }
+    return true;
+  }
+
+  void destroyBrowser()
+  {
+    if (!browserWidget_) return;
+    browserWidget_->closeBrowser();
+    layout_->removeWidget(browserWidget_);
+    delete browserWidget_;
+    browserWidget_ = nullptr;
+  }
+
+  void showPlaceholder(const QString &message)
+  {
+    placeholder_->setText(message);
+    placeholder_->show();
+  }
+
+  QVBoxLayout *layout_ = nullptr;
+  QLabel *placeholder_ = nullptr;
+  QTcpServer pageServer_;
+  QByteArray playerHtml_;
+  QString pagePath_;
+  BrowserPanelApi *browserApi_ = nullptr;
+  BrowserPanelWidget *browserWidget_ = nullptr;
+};
 
 namespace {
 class ScrollSafeSpinBox final : public QSpinBox {
@@ -193,6 +376,11 @@ KalturaDock::KalturaDock(CaptionsToggleCallback captionsToggleCallback,
   systemPalette_ = palette();
   auto *rootLayout = new QVBoxLayout(this);
   rootLayout->setContentsMargins(0, 0, 0, 0);
+  rootLayout->setSpacing(0);
+  auto *fixedHeader = new QWidget(this);
+  auto *fixedLayout = new QVBoxLayout(fixedHeader);
+  fixedLayout->setContentsMargins(12, 12, 12, 10);
+  fixedLayout->setSpacing(8);
   auto *scrollArea = new QScrollArea(this);
   scrollArea->setWidgetResizable(true);
   scrollArea->setFrameShape(QFrame::NoFrame);
@@ -204,7 +392,6 @@ KalturaDock::KalturaDock(CaptionsToggleCallback captionsToggleCallback,
   layout->setContentsMargins(12, 12, 12, 12);
   layout->setSpacing(8);
   scrollArea->setWidget(content);
-  rootLayout->addWidget(scrollArea);
 
   auto *title = new QLabel("Kaltura Live Plugin", this);
   QFont titleFont = title->font();
@@ -219,14 +406,7 @@ KalturaDock::KalturaDock(CaptionsToggleCallback captionsToggleCallback,
   entryNameValue_ = new QLabel("No live entry selected", this);
   entryIdValue_ = new QLabel(this);
   entryDescriptionValue_ = new QLabel(this);
-  thumbnailValue_ = new QLabel(this);
-  thumbnailValue_->setFixedSize(160, 90);
-  thumbnailValue_->setAlignment(Qt::AlignCenter);
-  thumbnailValue_->setText("No thumbnail");
-  thumbnailValue_->setStyleSheet(
-    "QLabel { border: 1px solid palette(mid); border-radius: 6px; "
-    "background-color: palette(alternate-base); color: palette(mid); }");
-  thumbnailNetwork_ = new QNetworkAccessManager(this);
+  entryPlayer_ = new KalturaPlayerPreview(this);
   primaryHealthValue_ = new QLabel(this);
   backupHealthValue_ = new QLabel(this);
   startPrimaryButton_ = new QPushButton("Start Primary", this);
@@ -289,8 +469,8 @@ KalturaDock::KalturaDock(CaptionsToggleCallback captionsToggleCallback,
   dockHeader->addWidget(title);
   dockHeader->addStretch(1);
   dockHeader->addWidget(settingsButton_);
-  layout->addLayout(dockHeader);
-  layout->addSpacing(6);
+  fixedLayout->addLayout(dockHeader);
+  fixedLayout->addSpacing(6);
   auto *entryCard = new QFrame(this);
   entryCard->setObjectName("kalturaEntryCard");
   entryCard->setStyleSheet(
@@ -306,10 +486,13 @@ KalturaDock::KalturaDock(CaptionsToggleCallback captionsToggleCallback,
   entryCardTitle->setFont(entryCardTitleFont);
   entryCardHeader->addWidget(entryCardTitle);
   entryCardHeader->addStretch(1);
+  auto *refreshPlayerButton = new QPushButton("Refresh Player", entryCard);
+  refreshPlayerButton->setToolTip("Reload only the Kaltura player");
+  entryCardHeader->addWidget(refreshPlayerButton);
   entryCardHeader->addWidget(statusValue_);
   auto *entryContent = new QHBoxLayout();
   entryContent->setSpacing(12);
-  entryContent->addWidget(thumbnailValue_, 0, Qt::AlignTop);
+  entryContent->addWidget(entryPlayer_, 0, Qt::AlignTop);
   auto *entryDetails = new QVBoxLayout();
   entryDetails->setSpacing(4);
   entryDetails->addWidget(entryNameValue_);
@@ -319,8 +502,15 @@ KalturaDock::KalturaDock(CaptionsToggleCallback captionsToggleCallback,
   entryContent->addLayout(entryDetails, 1);
   entryCardLayout->addLayout(entryCardHeader);
   entryCardLayout->addLayout(entryContent);
-  layout->addWidget(entryCard);
-  layout->addSpacing(12);
+  fixedLayout->addWidget(entryCard);
+  rootLayout->addWidget(fixedHeader);
+  auto *fixedHeaderDivider = new QFrame(this);
+  fixedHeaderDivider->setFrameShape(QFrame::HLine);
+  fixedHeaderDivider->setFrameShadow(QFrame::Sunken);
+  fixedHeaderDivider->setLineWidth(1);
+  fixedHeaderDivider->setToolTip("The entry information above remains fixed while scrolling");
+  rootLayout->addWidget(fixedHeaderDivider);
+  rootLayout->addWidget(scrollArea, 1);
 
   streamingTitle_ = new QLabel("Real-time Streaming", this);
   QFont healthTitleFont = streamingTitle_->font();
@@ -479,7 +669,7 @@ KalturaDock::KalturaDock(CaptionsToggleCallback captionsToggleCallback,
   layout->addLayout(backupControls);
   layout->addSpacing(12);
 
-  auto *captionsTitle = new QLabel("Live Captions", this);
+  auto *captionsTitle = new QLabel("Live Captions (beta)", this);
   QFont captionsTitleFont = captionsTitle->font();
   captionsTitleFont.setBold(true);
   captionsTitle->setFont(captionsTitleFont);
@@ -555,9 +745,9 @@ KalturaDock::KalturaDock(CaptionsToggleCallback captionsToggleCallback,
                      if (callback) callback(true);
                    });
   QObject::connect(startBothButton, &QPushButton::clicked,
-                   [primary = primaryControlCallback, backup = backupControlCallback]() {
-                     if (primary) primary(true);
-                     if (backup) backup(true);
+                   [this, primary = primaryControlCallback, backup = backupControlCallback]() {
+                     if (primary && primaryEditor_.loadedConfig.enabled) primary(true);
+                     if (backup && backupEditor_.loadedConfig.enabled) backup(true);
                    });
   QObject::connect(stopBothButton, &QPushButton::clicked,
                    [primary = primaryControlCallback, backup = backupControlCallback]() {
@@ -600,6 +790,8 @@ KalturaDock::KalturaDock(CaptionsToggleCallback captionsToggleCallback,
                    [callback = std::move(settingsCallback)]() {
                      if (callback) callback();
                    });
+  QObject::connect(refreshPlayerButton, &QPushButton::clicked, entryPlayer_,
+                   [player = entryPlayer_]() { player->refreshPlayer(); });
   QObject::connect(copyCaptionSegmentsButton, &QPushButton::clicked, [this]() {
     QApplication::clipboard()->setText(captionSegments_->toPlainText());
   });
@@ -770,8 +962,8 @@ void KalturaDock::setProjectSettings(const PluginSettings &settings)
     entryNameValue_->setText("No live entry selected");
     entryIdValue_->setText("Choose an entry in Kaltura Live Settings");
     entryDescriptionValue_->setText(
-      "The selected entry's thumbnail and broadcast details will appear here.");
-    loadEntryThumbnail({});
+      "The selected entry's player and broadcast details will appear here.");
+    entryPlayer_->setPlayer(0, {}, {});
     return;
   }
   const QString name = QString::fromUtf8(settings.selectedEntryName);
@@ -780,58 +972,8 @@ void KalturaDock::setProjectSettings(const PluginSettings &settings)
   const QString description = QString::fromUtf8(settings.selectedEntryDescription).trimmed();
   entryDescriptionValue_->setText(
     description.isEmpty() ? "No description provided." : description);
-  loadEntryThumbnail(QString::fromUtf8(settings.selectedEntryThumbnailUrl));
-}
-
-void KalturaDock::loadEntryThumbnail(const QString &url)
-{
-  const QString normalizedUrl = url.trimmed();
-  if (normalizedUrl == currentThumbnailUrl_) {
-    return;
-  }
-  currentThumbnailUrl_ = normalizedUrl;
-  const quint64 requestId = ++thumbnailRequestId_;
-  thumbnailValue_->setPixmap({});
-  if (normalizedUrl.isEmpty()) {
-    thumbnailValue_->setText("No thumbnail");
-    return;
-  }
-
-  const QUrl thumbnailUrl(normalizedUrl);
-  if (!thumbnailUrl.isValid() ||
-      (thumbnailUrl.scheme() != "https" && thumbnailUrl.scheme() != "http")) {
-    thumbnailValue_->setText("Invalid thumbnail");
-    return;
-  }
-  thumbnailValue_->setText("Loading…");
-  QNetworkRequest request(thumbnailUrl);
-  request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                       QNetworkRequest::NoLessSafeRedirectPolicy);
-  request.setTransferTimeout(10'000);
-  request.setRawHeader("Accept", "image/*");
-  QNetworkReply *reply = thumbnailNetwork_->get(request);
-  QObject::connect(reply, &QNetworkReply::finished, this, [this, reply, requestId]() {
-    const auto contentLength = reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
-    if (requestId != thumbnailRequestId_) {
-      reply->deleteLater();
-      return;
-    }
-    const QByteArray bytes = reply->readAll();
-    QPixmap thumbnail;
-    const bool validImage = reply->error() == QNetworkReply::NoError &&
-                            contentLength <= 5'000'000 && bytes.size() <= 5'000'000 &&
-                            thumbnail.loadFromData(bytes);
-    if (validImage) {
-      thumbnailValue_->setText({});
-      thumbnailValue_->setPixmap(thumbnail.scaled(
-        thumbnailValue_->size(), Qt::KeepAspectRatioByExpanding,
-        Qt::SmoothTransformation));
-    } else {
-      thumbnailValue_->setPixmap({});
-      thumbnailValue_->setText("Thumbnail unavailable");
-    }
-    reply->deleteLater();
-  });
+  entryPlayer_->setPlayer(settings.partnerId, settings.selectedEntryId,
+                          settings.kalturaSession);
 }
 
 void KalturaDock::setStreamingHealth(const StreamingHealth &health)

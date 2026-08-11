@@ -87,6 +87,7 @@ add_library(${PROJECT_NAME} MODULE
   src/logger.cpp
   src/settings_manager.cpp
   src/settings_dialog.cpp
+  src/kaltura_player_embed.cpp
   src/stream_output_config.cpp
   src/streaming_manager.cpp
   src/captions/caption_manager.cpp
@@ -149,6 +150,7 @@ if(BUILD_TESTING)
 
   add_executable(kaltura-stream-output-tests
     tests/stream_output_config_tests.cpp
+    src/kaltura_player_embed.cpp
     src/stream_output_config.cpp)
   set_target_properties(kaltura-stream-output-tests PROPERTIES AUTOMOC OFF)
   target_include_directories(kaltura-stream-output-tests PRIVATE include)

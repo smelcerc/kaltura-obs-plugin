@@ -16,6 +16,7 @@ namespace {
 constexpr const char *kSettingsRootKey = "kaltura_live";
 constexpr const char *kKalturaSessionKey = "kaltura_session";
 constexpr const char *kCredentialIdKey = "credential_id";
+constexpr const char *kPartnerIdKey = "partner_id";
 constexpr const char *kSelectedEntryIdKey = "selected_entry_id";
 constexpr const char *kSelectedEntryNameKey = "selected_entry_name";
 constexpr const char *kSelectedEntryDescriptionKey = "selected_entry_description";
@@ -334,6 +335,9 @@ void SettingsManager::load(obs_data_t *rootData)
     persistSession();
   }
   settings_.selectedEntryId = obs_data_get_string(pluginData, kSelectedEntryIdKey);
+  settings_.partnerId = std::max<std::int64_t>(
+    0, static_cast<std::int64_t>(obs_data_get_int(pluginData, kPartnerIdKey)));
+  if (settings_.kalturaSession.empty()) settings_.partnerId = 0;
   settings_.selectedEntryName = obs_data_get_string(pluginData, kSelectedEntryNameKey);
   settings_.selectedEntryDescription =
     obs_data_get_string(pluginData, kSelectedEntryDescriptionKey);
@@ -447,6 +451,7 @@ void SettingsManager::save(obs_data_t *rootData) const
     obs_data_set_string(pluginData, kCredentialIdKey, credentialId_.c_str());
   }
   obs_data_set_string(pluginData, kSelectedEntryIdKey, settings_.selectedEntryId.c_str());
+  obs_data_set_int(pluginData, kPartnerIdKey, settings_.partnerId);
   obs_data_set_string(pluginData, kSelectedEntryNameKey, settings_.selectedEntryName.c_str());
   obs_data_set_string(pluginData, kSelectedEntryDescriptionKey,
                       settings_.selectedEntryDescription.c_str());
@@ -522,7 +527,9 @@ void SettingsManager::update(const PluginSettings &updated)
   });
   if (!settings_.kalturaSession.empty() && !isValidKalturaSession(settings_.kalturaSession)) {
     settings_.kalturaSession.clear();
+    settings_.partnerId = 0;
   }
+  settings_.partnerId = std::max<std::int64_t>(0, settings_.partnerId);
   persistSession();
   persistOutputSecrets();
   if (!settings_.selectedEntryId.empty() && !validEntryId(settings_.selectedEntryId)) {

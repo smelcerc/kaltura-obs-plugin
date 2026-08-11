@@ -516,14 +516,15 @@ SettingsDialog::SettingsDialog(const PluginSettings &currentSettings,
   streamingLayout->setSizeConstraint(QLayout::SetMinimumSize);
   streamingLayout->setContentsMargins(16, 18, 16, 16);
 
-  auto *endpointGroup = new QGroupBox("Preferred endpoint", streamingTab);
+  auto *endpointGroup = new QGroupBox("Stream destination", streamingTab);
   auto *endpointLayout = new QVBoxLayout(endpointGroup);
   auto *endpointHelp = new QLabel(
-    "Choose the Kaltura ingest route. Both starts Primary and Backup together.",
+    "Choose which Kaltura destination is enabled. When Both is selected, Primary uses "
+    "the standard OBS stream and Backup starts alongside it.",
     endpointGroup);
   endpointHelp->setWordWrap(true);
-  primaryEndpoint_ = new QRadioButton("Primary", endpointGroup);
-  backupEndpoint_ = new QRadioButton("Backup", endpointGroup);
+  primaryEndpoint_ = new QRadioButton("Primary only", endpointGroup);
+  backupEndpoint_ = new QRadioButton("Backup only", endpointGroup);
   bothEndpoints_ = new QRadioButton("Both", endpointGroup);
   endpointLayout->addWidget(endpointHelp);
   endpointLayout->addSpacing(4);
@@ -531,8 +532,11 @@ SettingsDialog::SettingsDialog(const PluginSettings &currentSettings,
   endpointLayout->addWidget(backupEndpoint_);
   endpointLayout->addWidget(bothEndpoints_);
   streamingLayout->addWidget(endpointGroup);
-  endpointGroup->setVisible(false);
-  bothEndpoints_->setChecked(true);
+  switch (currentSettings.preferredEndpoint) {
+  case StreamingEndpoint::Primary: primaryEndpoint_->setChecked(true); break;
+  case StreamingEndpoint::Backup: backupEndpoint_->setChecked(true); break;
+  case StreamingEndpoint::Both: bothEndpoints_->setChecked(true); break;
+  }
 
   auto *captionPresentationGroup = new QGroupBox("Caption presentation", streamingTab);
   auto *captionPresentationLayout = new QFormLayout(captionPresentationGroup);
@@ -622,8 +626,6 @@ SettingsDialog::SettingsDialog(const PluginSettings &currentSettings,
   streamingLayout->addWidget(dictionaryGroup);
   streamingLayout->addStretch(1);
 
-  bothEndpoints_->setChecked(true);
-
   auto *advancedTab = new QWidget(tabs);
   auto *advancedLayout = new QVBoxLayout(advancedTab);
   advancedLayout->setSizeConstraint(QLayout::SetMinimumSize);
@@ -704,6 +706,7 @@ SettingsDialog::SettingsDialog(const PluginSettings &currentSettings,
     currentPage_ = 1;
     totalEntries_ = 0;
     draftSettings_.selectedEntryId.clear();
+    draftSettings_.partnerId = 0;
     draftSettings_.selectedEntryName.clear();
     draftSettings_.selectedEntryDescription.clear();
     draftSettings_.selectedEntryThumbnailUrl.clear();
@@ -829,7 +832,10 @@ PluginSettings SettingsDialog::selectedSettings() const
 {
   PluginSettings settings = draftSettings_;
   settings.kalturaSession = sessionEdit_->text().toUtf8().toStdString();
-  settings.preferredEndpoint = StreamingEndpoint::Both;
+  settings.preferredEndpoint = backupEndpoint_->isChecked()
+    ? StreamingEndpoint::Backup
+    : bothEndpoints_->isChecked() ? StreamingEndpoint::Both
+                                  : StreamingEndpoint::Primary;
   settings.loggingLevel = static_cast<LoggingLevel>(loggingLevelCombo_->currentData().toInt());
   settings.debugLogging = debugLoggingCheck_->isChecked();
   settings.captionStyle = static_cast<CaptionStyle>(captionStyleCombo_->currentData().toInt());
@@ -1013,6 +1019,7 @@ void SettingsDialog::validateSession()
     dialog->setValidationBusy(false);
     if (!result.succeeded()) {
       dialog->clearConnectionDetails();
+      dialog->draftSettings_.partnerId = 0;
       dialog->validationStatus_->setText(friendlyValidationError(*result.error));
       dialog->validationStatus_->setStyleSheet("color: #d04444;");
       dialog->validationStatus_->setVisible(true);
@@ -1042,6 +1049,7 @@ void SettingsDialog::validateSession()
         .arg(result.httpStatus)
         .arg(result.attempts));
     dialog->validatedSession_ = session.toStdString();
+    dialog->draftSettings_.partnerId = sessionInfo.partnerId;
     dialog->entriesGroup_->setVisible(true);
     dialog->currentPage_ = 1;
     dialog->startEntryLoad();
@@ -1256,7 +1264,10 @@ void SettingsDialog::configureSelectedEntry(const api::LiveEntry &entry)
         return;
       }
 
-      const StreamingEndpoint endpoint = StreamingEndpoint::Both;
+      const StreamingEndpoint endpoint = dialog->backupEndpoint_->isChecked()
+        ? StreamingEndpoint::Backup
+        : dialog->bothEndpoints_->isChecked() ? StreamingEndpoint::Both
+                                               : StreamingEndpoint::Primary;
       const StreamOutputConfig primary = mapKalturaOutput(*result.value, OutputRole::Primary);
       const StreamOutputConfig backup = mapKalturaOutput(*result.value, OutputRole::Backup);
       std::string validationFailure;
@@ -1277,13 +1288,16 @@ void SettingsDialog::configureSelectedEntry(const api::LiveEntry &entry)
              QString::fromUtf8(primary.endpoint),
              QString::fromLatin1(outputProtocolName(backup.protocol)),
              QString::fromUtf8(backup.endpoint));
+      const QString destinationName = endpoint == StreamingEndpoint::Primary
+        ? "Primary only" : endpoint == StreamingEndpoint::Backup ? "Backup only" : "Both";
       const QString confirmation =
-        QString("Configure independent Primary and Backup outputs for this Kaltura entry?\n\n"
+        QString("Configure the selected Kaltura destination for this entry?\n\n"
                 "Entry: %1\nEntry ID: %2\n%3\n"
-                "Authentication: %4\nStream key: securely populated (hidden)\n\n"
+                "Destination: %4\n"
+                "Authentication: %5\nStream key: securely populated (hidden)\n\n"
                 "Each output can be started, stopped, and edited separately in the dock.")
           .arg(entryName, QString::fromUtf8(entry.id), endpointDetails,
-               usesAuthentication ? "Required" : "Not required");
+               destinationName, usesAuthentication ? "Required" : "Not required");
       if (QMessageBox::question(dialog, "Configure OBS Streaming", confirmation,
                                 QMessageBox::Yes | QMessageBox::Cancel,
                                 QMessageBox::Cancel) != QMessageBox::Yes) {
