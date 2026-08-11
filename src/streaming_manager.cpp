@@ -389,11 +389,16 @@ private:
     if (backup.config.protocol == OutputProtocol::SRT) {
       obs_data_t *videoSettings = obs_encoder_get_settings(video);
       obs_data_t *audioSettings = obs_encoder_get_settings(audio);
+#if LIBOBS_API_MAJOR_VER >= 32
+      const size_t audioMixerIndex = obs_encoder_get_mixer_index(audio);
+#else
+      const size_t audioMixerIndex = obs_output_get_mixer(frontend);
+#endif
       backup.videoEncoder = obs_video_encoder_create(
         obs_encoder_get_id(video), "kaltura_backup_video", videoSettings, nullptr);
       backup.audioEncoder = obs_audio_encoder_create(
         obs_encoder_get_id(audio), "kaltura_backup_audio", audioSettings,
-        obs_encoder_get_mixer_index(audio), nullptr);
+        audioMixerIndex, nullptr);
       if (videoSettings) obs_data_release(videoSettings);
       if (audioSettings) obs_data_release(audioSettings);
       if (!backup.videoEncoder || !backup.audioEncoder) {

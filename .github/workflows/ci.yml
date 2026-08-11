@@ -58,7 +58,7 @@ jobs:
           result=${PIPESTATUS[0]}
           set -e
           if (( result != 0 )); then
-            diagnostic="$(grep -n -E -A 40 -B 5 'FAILED:|(^|[^[:alpha:]])error:' linux-build.log | tail -c 6000 || true)"
+            diagnostic="$(grep -n -E -A 12 -B 4 'FAILED:|(^|[^[:alpha:]])error:' linux-build.log | head -c 3500 || true)"
             if [[ -z "${diagnostic}" ]]; then
               diagnostic="$(tail -100 linux-build.log | tail -c 6000)"
             fi
