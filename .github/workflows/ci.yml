@@ -190,12 +190,25 @@ jobs:
       - name: Configure, build, test, and package
         shell: pwsh
         run: |
+          $log = "$env:GITHUB_WORKSPACE/windows-build.log"
+          function Invoke-Checked {
+            param([scriptblock] $Command)
+            & $Command 2>&1 | Tee-Object -FilePath $log -Append
+            if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code $LASTEXITCODE" }
+          }
+          try {
           $root = "$env:GITHUB_WORKSPACE/.deps"
           $prefix = "$root/obs-sdk;$root/obs-deps;$root/qt6"
-          cmake -S . -B build-ci -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_PREFIX_PATH="$prefix" `
-            -DKALTURA_LIVE_OBS_SOURCE_PATH="$env:GITHUB_WORKSPACE/third_party/obs-studio"
-          ./scripts/package-windows.ps1 -BuildDirectory build-ci -DistDirectory dist -Configuration RelWithDebInfo
+          Invoke-Checked { cmake -S . -B build-ci -G "Visual Studio 17 2022" -A x64 `
+              "-DCMAKE_PREFIX_PATH:PATH=$prefix" `
+              "-DKALTURA_LIVE_OBS_SOURCE_PATH:PATH=$env:GITHUB_WORKSPACE/third_party/obs-studio" }
+          Invoke-Checked { ./scripts/package-windows.ps1 -BuildDirectory build-ci -DistDirectory dist -Configuration RelWithDebInfo }
+          } catch {
+            $diagnostic = ((Get-Content $log -Tail 100) -join "%0A").Replace('%', '%25')
+            $diagnostic = $diagnostic.Replace('%250A', '%0A').Replace("`r", '%0D')
+            Write-Output "::error title=Windows plugin build failed::$diagnostic"
+            throw
+          }
       - uses: actions/upload-artifact@v7
         with:
           name: kaltura-live-windows-x86_64
