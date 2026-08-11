@@ -10,7 +10,7 @@ set(KALTURA_LIVE_LIBOBS_LIBRARY "" CACHE FILEPATH "Path to the libobs link libra
 set(KALTURA_LIVE_OBS_FRONTEND_LIBRARY "" CACHE FILEPATH
   "Path to the obs-frontend-api link library")
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Network Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Network Widgets)
 find_package(libobs QUIET CONFIG)
 find_package(obs-frontend-api QUIET CONFIG)
 

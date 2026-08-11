@@ -9,7 +9,7 @@ machine-specific files. All architectures in one process must match.
 | Dependency | Version/baseline | macOS x86_64 / arm64 | Windows x86_64 | Linux x86_64 | Discovery |
 |---|---|---|---|---|---|
 | OBS Studio SDK | 32.0 minimum; CI 32.1.2 | matching OBS app/official SDK | official OBS SDK build | `libobs-dev` + frontend library | CMake config first, configurable SDK fallback |
-| Qt | 6.8+ and exactly OBS-compatible at runtime | OBS-matched Qt package | official OBS Qt dependency | `qt6-base-dev` | `find_package(Qt6)` imported targets |
+| Qt | Qt 6, ABI-compatible with OBS | OBS-matched Qt package | official OBS Qt dependency | distribution `qt6-base-dev` matching OBS | `find_package(Qt6)` imported targets |
 | whisper.cpp | v1.9.1 | source build per slice | source build | source build | pinned `FetchContent` |
 | ggml | supplied by whisper.cpp | Accelerate/CPU, native tuning off | CPU, native tuning off | CPU/BLAS where found, native tuning off | whisper.cpp target |
 | libcaption | selected OBS source tag | source | source | source | `KALTURA_LIVE_OBS_SOURCE_PATH/deps/libcaption` |

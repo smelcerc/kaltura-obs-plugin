@@ -1,7 +1,7 @@
 # Build on Windows
 
 Requirements: 64-bit Windows, Visual Studio 2022 with Desktop C++, CMake 3.28+, an OBS 32 SDK
-containing Development components, matching Qt 6.8+ development files, Git, and PowerShell 7.
+containing Development components, matching Qt 6 development files, Git, and PowerShell 7.
 MinGW is not supported.
 
 ```powershell
