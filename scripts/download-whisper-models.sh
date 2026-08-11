@@ -4,13 +4,31 @@ set -euo pipefail
 destination="${1:?usage: download-whisper-models.sh DESTINATION}"
 mkdir -p "${destination}"
 
+sha256_file() {
+  local path="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${path}" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "${path}" | awk '{print $1}'
+  elif command -v certutil >/dev/null 2>&1; then
+    local native_path="${path}"
+    if command -v cygpath >/dev/null 2>&1; then
+      native_path="$(cygpath -w "${path}")"
+    fi
+    certutil -hashfile "${native_path}" SHA256 | sed -n '2{s/[[:space:]]//g;s/\r//g;p;}'
+  else
+    echo "error: no SHA-256 utility is available" >&2
+    return 1
+  fi
+}
+
 download_model() {
   local name="$1"
   local expected_sha256="$2"
   local target="${destination}/ggml-${name}.bin"
   local actual_sha256=""
   if [[ -f "${target}" ]]; then
-    actual_sha256="$(shasum -a 256 "${target}" | awk '{print $1}')"
+    actual_sha256="$(sha256_file "${target}")"
   fi
   if [[ "${actual_sha256}" == "${expected_sha256}" ]]; then
     return
@@ -19,7 +37,7 @@ download_model() {
   curl --fail --location --retry 3 --proto '=https' \
     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-${name}.bin" \
     --output "${target}.download"
-  actual_sha256="$(shasum -a 256 "${target}.download" | awk '{print $1}')"
+  actual_sha256="$(sha256_file "${target}.download")"
   if [[ "${actual_sha256}" != "${expected_sha256}" ]]; then
     rm -f "${target}.download"
     echo "error: checksum verification failed for Local Whisper ${name}" >&2
