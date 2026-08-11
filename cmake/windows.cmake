@@ -7,7 +7,9 @@ function(kaltura_configure_platform_target target)
 endfunction()
 
 function(kaltura_configure_install target)
-  install(TARGETS ${target} RUNTIME DESTINATION "obs-plugins/64bit")
+  install(TARGETS ${target}
+    RUNTIME DESTINATION "obs-plugins/64bit"
+    LIBRARY DESTINATION "obs-plugins/64bit")
   if(KALTURA_LIVE_MODEL_SOURCE_DIR)
     foreach(model IN ITEMS ggml-tiny.en.bin ggml-base.en.bin)
       if(NOT EXISTS "${KALTURA_LIVE_MODEL_SOURCE_DIR}/${model}")
