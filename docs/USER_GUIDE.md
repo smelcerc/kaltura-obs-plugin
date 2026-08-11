@@ -3,7 +3,7 @@
 ## Requirements
 
 - OBS Studio 32.0 or newer
-- macOS 12+ or a supported 64-bit Linux distribution
+- macOS 12+, Windows x86_64, or a supported 64-bit Linux distribution
 - A valid Kaltura Session with access to the relevant live entries
 - Enough CPU for local Whisper transcription when captions are enabled
 
@@ -15,6 +15,19 @@ be shown through **Tools → Open Kaltura Live** or OBS's Docks menu.
 On macOS, the installer places the plugin system-wide under `/Library/Application Support/obs-studio/plugins`.
 On Debian/Ubuntu, the package installs the module under `/usr/lib/obs-plugins` and its local Whisper
 models under `/usr/share/obs/obs-plugins/kaltura-live/models`.
+
+## Update or uninstall
+
+Open **Tools → Kaltura Live Settings…** and select **Update Plugin…** to open the latest verified
+GitHub Release. Quit OBS before replacing an installed plugin.
+
+- **macOS:** Run **Uninstall Kaltura Live.command** from the downloaded archive, or from
+  `/Applications` after installing the PKG. It removes both system and per-user copies.
+- **Windows:** Keep `uninstall-kaltura-live.ps1` beside the extracted `obs-plugins` and `data`
+  directories. Run it with PowerShell after quitting OBS.
+- **Debian/Ubuntu:** Use `sudo apt remove kaltura-live`, or run the included
+  `uninstall-kaltura-live.sh` from the package documentation directory. The same script is included
+  in the Linux tarball for manual installations.
 
 ## Connect to Kaltura
 
@@ -51,8 +64,10 @@ Long transcription results are split across consecutive CEA-608 screens; text be
 rows is not discarded. Caption settings lock while an output is active.
 
 The CEA-608 monitor confirms that OBS accepted a screen for native video-frame insertion. It cannot
-confirm receipt by the remote player. Use **Copy All** to copy retained output history. Use
-**Copy Transcript** in Settings to compare it with the Whisper results.
+confirm receipt by the remote player. The monitor starts collapsed and does not retain or render a
+preview while closed. Expanding it starts a new preview from that point forward; collapsing it clears
+the preview. Use **Copy All** to copy the current open preview. Use **Copy Transcript** in Settings
+to compare it with the Whisper results.
 
 ## Custom dictionary
 

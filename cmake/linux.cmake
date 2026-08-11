@@ -20,6 +20,8 @@ function(kaltura_configure_install target)
     endforeach()
   endif()
   install(FILES README.md docs/USER_GUIDE.md DESTINATION "${CMAKE_INSTALL_DOCDIR}")
+  install(PROGRAMS packaging/linux/uninstall-kaltura-live.sh
+    DESTINATION "${CMAKE_INSTALL_DOCDIR}")
 endfunction()
 
 function(kaltura_configure_cpack)

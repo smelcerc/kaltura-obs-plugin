@@ -38,8 +38,12 @@ done
   "${bundle}/Contents/PlugIns/tls/libqsecuretransportbackend.dylib" 'x86_64;arm64'
 codesign --force --deep --sign "${MACOS_APPLICATION_SIGNING_IDENTITY:--}" \
   --timestamp=none "${bundle}"
+cp "${project_dir}/packaging/macos/uninstall.command" \
+  "${staging_dir}/Uninstall Kaltura Live.command"
+chmod 755 "${staging_dir}/Uninstall Kaltura Live.command"
 mkdir -p "${dist_dir}"
 archive="${dist_dir}/kaltura-live-${version}-macOS-universal.tar.gz"
-COPYFILE_DISABLE=1 tar -C "${staging_dir}" -czf "${archive}" kaltura-live.plugin
+COPYFILE_DISABLE=1 tar -C "${staging_dir}" -czf "${archive}" \
+  kaltura-live.plugin "Uninstall Kaltura Live.command"
 shasum -a 256 "${archive}" > "${archive}.sha256"
 echo "Created ${archive}"

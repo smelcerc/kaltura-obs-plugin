@@ -15,6 +15,7 @@ class QCheckBox;
 class QComboBox;
 class QSpinBox;
 class QPushButton;
+class QToolButton;
 class QNetworkAccessManager;
 class QPlainTextEdit;
 
@@ -48,6 +49,7 @@ public:
 
 private:
   void loadEntryThumbnail(const QString &url);
+  void populateCaptionSegments(const captions::CaptionHealth &health);
 
   QLabel *statusValue_ = nullptr;
   QLabel *thumbnailValue_ = nullptr;
@@ -68,11 +70,15 @@ private:
   QComboBox *whisperModel_ = nullptr;
   QLabel *captionStatus_ = nullptr;
   QLabel *captionHealth_ = nullptr;
+  QToolButton *captionPreviewToggle_ = nullptr;
+  QWidget *captionPreviewContent_ = nullptr;
   QPlainTextEdit *captionSegments_ = nullptr;
   QNetworkAccessManager *thumbnailNetwork_ = nullptr;
   QString currentThumbnailUrl_;
   quint64 thumbnailRequestId_ = 0;
   int programDelaySeconds_ = 0;
+  uint64_t latestCaptionSequence_ = 0;
+  uint64_t captionPreviewStartSequence_ = 0;
   QPalette systemPalette_;
 };
 

@@ -12,7 +12,6 @@
 class QAction;
 class QMainWindow;
 class QTimer;
-class QToolBar;
 
 namespace kaltura_live {
 
@@ -67,8 +66,6 @@ private:
   KalturaDock *dockWidget_ = nullptr;
   QAction *settingsAction_ = nullptr;
   QAction *showDockAction_ = nullptr;
-  QToolBar *toolbar_ = nullptr;
-  QAction *toolbarAction_ = nullptr;
   QTimer *healthTimer_ = nullptr;
 
   SettingsManager settingsManager_{};

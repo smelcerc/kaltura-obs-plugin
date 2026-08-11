@@ -16,14 +16,12 @@
 #include <QAction>
 #include <QCoreApplication>
 #include <QDir>
-#include <QIcon>
 #include <QMainWindow>
 #include <QMetaObject>
 #include <QMessageBox>
 #include <QSslSocket>
 #include <QStringList>
 #include <QTimer>
-#include <QToolBar>
 
 #include <algorithm>
 
@@ -33,8 +31,6 @@ constexpr const char *kDockId = "kaltura_live_dock";
 constexpr const char *kDockTitle = "Kaltura Live";
 constexpr const char *kSettingsMenuTitle = "Kaltura Live Settings...";
 constexpr const char *kOpenDockMenuTitle = "Open Kaltura Live";
-constexpr const char *kToolbarName = "Kaltura Live";
-constexpr const char *kToolbarActionName = "Kaltura Live";
 
 QUrl preferredRtmpUrl(const kaltura_live::api::StreamConfiguration &configuration,
                       kaltura_live::StreamingEndpoint endpoint)
@@ -188,18 +184,6 @@ bool Plugin::initialize()
                      [this]() { onDockMenuClicked(this); });
   }
 
-  toolbar_ = mainWindow_->findChild<QToolBar *>(kToolbarName);
-  if (!toolbar_) {
-    toolbar_ = new QToolBar(kToolbarName, mainWindow_);
-    toolbar_->setObjectName(kToolbarName);
-    mainWindow_->addToolBar(toolbar_);
-  }
-
-  toolbarAction_ = new QAction(QIcon(":/kaltura_live/icons/kaltura_live.svg"), kToolbarActionName, toolbar_);
-  QObject::connect(toolbarAction_, &QAction::triggered,
-                   [this]() { showDock(); });
-  toolbar_->addAction(toolbarAction_);
-
   obs_frontend_add_save_callback(&Plugin::onFrontendSave, this);
   obs_frontend_add_event_callback(&Plugin::onFrontendEvent, this);
 
@@ -236,12 +220,6 @@ void Plugin::shutdown()
   if (streamingManager_) {
     streamingManager_->shutdown();
     streamingManager_.reset();
-  }
-
-  if (toolbar_ && toolbarAction_) {
-    toolbar_->removeAction(toolbarAction_);
-    delete toolbarAction_;
-    toolbarAction_ = nullptr;
   }
 
   obs_frontend_remove_dock(kDockId);

@@ -1,5 +1,6 @@
 #include "kaltura_live/settings_dialog.hpp"
 #include "kaltura_live/api/kaltura_api_client.hpp"
+#include "kaltura_live/version.hpp"
 
 #include <QAbstractItemView>
 #include <QApplication>
@@ -8,6 +9,7 @@
 #include <QColor>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QDesktopServices>
 #include <QDateTime>
 #include <QFile>
 #include <QFileDialog>
@@ -36,6 +38,7 @@
 #include <QTextDocument>
 #include <QTextStream>
 #include <QTimer>
+#include <QUrl>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -588,8 +591,20 @@ SettingsDialog::SettingsDialog(const PluginSettings &currentSettings,
   addScrollableTab(advancedTab, "Advanced");
 
   auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+  auto *updatePluginButton = buttons->addButton("Update Plugin…", QDialogButtonBox::ActionRole);
+  updatePluginButton->setToolTip(
+    "Open the latest verified Kaltura Live release (installed version "
+    KALTURA_LIVE_VERSION_STRING ").");
 
   connect(validateButton_, &QPushButton::clicked, this, [this]() { validateSession(); });
+  connect(updatePluginButton, &QPushButton::clicked, this, [this]() {
+    const QUrl releaseUrl("https://github.com/smelcerc/kaltura-obs-plugin/releases/latest");
+    if (!QDesktopServices::openUrl(releaseUrl)) {
+      QMessageBox::warning(this, "Could Not Open Updates",
+                           "Open https://github.com/smelcerc/kaltura-obs-plugin/releases/latest "
+                           "to download the newest plugin installer.");
+    }
+  });
   connect(sessionEdit_, &QLineEdit::textChanged, this, [this]() {
     ++validationRequestId_;
     ++entryLoadRequestId_;

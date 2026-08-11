@@ -91,8 +91,7 @@ add_library(${PROJECT_NAME} MODULE
   src/captions/caption_manager.cpp
   src/captions/cea608_caption_inserter.cpp
   src/captions/whisper_provider.cpp
-  src/kaltura_dock.cpp
-  resources/resources.qrc)
+  src/kaltura_dock.cpp)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
   include

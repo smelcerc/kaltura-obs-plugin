@@ -92,10 +92,17 @@ fi
 staging_dir="$(mktemp -d /tmp/kaltura-live-package.XXXXXX)"
 trap 'rm -rf "${staging_dir}"' EXIT
 bundle="${staging_dir}/root/Library/Application Support/obs-studio/plugins/kaltura-live.plugin"
+installed_uninstaller="${staging_dir}/root/Applications/Uninstall Kaltura Live.command"
+archive_extras="${staging_dir}/archive-extras"
 mkdir -p "${bundle}/Contents/MacOS" "${bundle}/Contents/PlugIns/tls" \
-  "${bundle}/Contents/Resources/models" "${dist_dir}"
+  "${bundle}/Contents/Resources/models" "$(dirname "${installed_uninstaller}")" \
+  "${archive_extras}" "${dist_dir}"
 cp "${binary}" "${bundle}/Contents/MacOS/kaltura-live"
 cp "${tls_backend}" "${bundle}/Contents/PlugIns/tls/libqsecuretransportbackend.dylib"
+cp "${project_dir}/packaging/macos/uninstall.command" "${installed_uninstaller}"
+cp "${project_dir}/packaging/macos/uninstall.command" \
+  "${archive_extras}/Uninstall Kaltura Live.command"
+chmod 755 "${installed_uninstaller}" "${archive_extras}/Uninstall Kaltura Live.command"
 sed "s/@VERSION@/${version}/g" "${project_dir}/packaging/macos/Info.plist.in" \
   > "${bundle}/Contents/Info.plist"
 if [[ "${skip_models}" == false ]]; then
@@ -120,7 +127,9 @@ xattr -cr "${staging_dir}/root"
 
 artifact_arch="${macos_architectures//;/_}"
 archive="${dist_dir}/kaltura-live-${version}-macOS-${artifact_arch}.tar.gz"
-COPYFILE_DISABLE=1 tar -C "$(dirname "${bundle}")" -czf "${archive}" "$(basename "${bundle}")"
+COPYFILE_DISABLE=1 tar -czf "${archive}" \
+  -C "$(dirname "${bundle}")" "$(basename "${bundle}")" \
+  -C "${archive_extras}" "Uninstall Kaltura Live.command"
 
 unsigned_pkg="${staging_dir}/kaltura-live-unsigned.pkg"
 scripts_dir="${staging_dir}/scripts"

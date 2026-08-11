@@ -21,6 +21,7 @@
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTextCursor>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include <QUrl>
 
@@ -330,24 +331,36 @@ KalturaDock::KalturaDock(CaptionsToggleCallback captionsToggleCallback,
   layout->addLayout(captionForm);
   layout->addWidget(captionStatus_);
   layout->addWidget(captionHealth_);
-  auto *captionSegmentsTitle = new QLabel("CEA-608 output monitor", this);
-  QFont captionSegmentsTitleFont = captionSegmentsTitle->font();
-  captionSegmentsTitleFont.setBold(true);
-  captionSegmentsTitle->setFont(captionSegmentsTitleFont);
-  auto *copyCaptionSegmentsButton = new QPushButton("Copy All", this);
+  captionPreviewToggle_ = new QToolButton(this);
+  captionPreviewToggle_->setText("CEA-608 output monitor");
+  captionPreviewToggle_->setCheckable(true);
+  captionPreviewToggle_->setChecked(false);
+  captionPreviewToggle_->setArrowType(Qt::RightArrow);
+  captionPreviewToggle_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  captionPreviewToggle_->setAutoRaise(true);
+  QFont captionPreviewToggleFont = captionPreviewToggle_->font();
+  captionPreviewToggleFont.setBold(true);
+  captionPreviewToggle_->setFont(captionPreviewToggleFont);
+  captionPreviewContent_ = new QWidget(this);
+  auto *captionPreviewLayout = new QVBoxLayout(captionPreviewContent_);
+  captionPreviewLayout->setContentsMargins(16, 0, 0, 0);
+  captionPreviewLayout->setSpacing(6);
+  auto *copyCaptionSegmentsButton = new QPushButton("Copy All", captionPreviewContent_);
   copyCaptionSegmentsButton->setToolTip(
     "Copies the complete retained CEA-608 output history to the clipboard.");
   auto *captionSegmentsHeader = new QHBoxLayout();
-  captionSegmentsHeader->addWidget(captionSegmentsTitle);
   captionSegmentsHeader->addStretch(1);
   captionSegmentsHeader->addWidget(copyCaptionSegmentsButton);
   auto *captionSegmentsHelp = new QLabel(
     "Actual broadcast-safe segments handed to each active OBS output. "
-    "This confirms OBS insertion, not receipt by the RTMP server.", this);
+    "This confirms OBS insertion, not receipt by the RTMP server.", captionPreviewContent_);
   captionSegmentsHelp->setWordWrap(true);
-  layout->addLayout(captionSegmentsHeader);
-  layout->addWidget(captionSegmentsHelp);
-  layout->addWidget(captionSegments_);
+  captionPreviewLayout->addLayout(captionSegmentsHeader);
+  captionPreviewLayout->addWidget(captionSegmentsHelp);
+  captionPreviewLayout->addWidget(captionSegments_);
+  captionPreviewContent_->setVisible(false);
+  layout->addWidget(captionPreviewToggle_);
+  layout->addWidget(captionPreviewContent_);
   layout->addStretch(1);
 
   setStreamingHealth({});
@@ -399,6 +412,14 @@ KalturaDock::KalturaDock(CaptionsToggleCallback captionsToggleCallback,
   QObject::connect(copyCaptionSegmentsButton, &QPushButton::clicked, [this]() {
     QApplication::clipboard()->setText(captionSegments_->toPlainText());
   });
+  QObject::connect(captionPreviewToggle_, &QToolButton::toggled, [this](bool expanded) {
+    captionPreviewToggle_->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
+    captionPreviewContent_->setVisible(expanded);
+    if (expanded) {
+      captionPreviewStartSequence_ = latestCaptionSequence_;
+    }
+    captionSegments_->clear();
+  });
 }
 
 void KalturaDock::setCaptionsEnabled(bool enabled)
@@ -437,6 +458,11 @@ void KalturaDock::setCaptionsLocked(bool locked)
 
 void KalturaDock::setCaptionHealth(const captions::CaptionHealth &health)
 {
+  uint64_t newestSequence = 0;
+  for (const captions::CaptionSegment &segment : health.recentSegments) {
+    newestSequence = std::max(newestSequence, segment.sequence);
+  }
+  latestCaptionSequence_ = newestSequence;
   QString error;
   if (!health.lastError.empty() && health.lastError != health.providerStatus) {
     error = "<br><span style='color:#ed4245'>" +
@@ -454,9 +480,19 @@ void KalturaDock::setCaptionHealth(const captions::CaptionHealth &health)
       .arg(health.lastOutputCount)
       .arg(error));
 
+  if (captionPreviewToggle_ && captionPreviewToggle_->isChecked()) {
+    populateCaptionSegments(health);
+  }
+}
+
+void KalturaDock::populateCaptionSegments(const captions::CaptionHealth &health)
+{
   QStringList segments;
   for (auto segment = health.recentSegments.crbegin();
        segment != health.recentSegments.crend(); ++segment) {
+    if (segment->sequence <= captionPreviewStartSequence_) {
+      continue;
+    }
     QString destinations;
     if (segment->primaryQueued) {
       destinations = "Primary";
