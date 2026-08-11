@@ -174,9 +174,11 @@ jobs:
           Expand-Archive "$root/qt6.zip" "$root/qt6"
           Invoke-Checked { git clone --depth 1 --branch $env:OBS_VERSION https://github.com/obsproject/obs-studio.git third_party/obs-studio }
           $prefix = "$root/obs-deps;$root/qt6"
+          $obsVersion = $env:OBS_VERSION
           Invoke-Checked { cmake -S third_party/obs-studio -B obs-build -G "Visual Studio 17 2022" -A x64 `
-              -DOBS_CMAKE_VERSION=3.0.0 -DOBS_VERSION_OVERRIDE=$env:OBS_VERSION `
-              -DENABLE_PLUGINS=OFF -DENABLE_FRONTEND=OFF -DCMAKE_PREFIX_PATH="$prefix" }
+              "-DOBS_CMAKE_VERSION:STRING=3.0.0" "-DOBS_VERSION_OVERRIDE:STRING=$obsVersion" `
+              "-DENABLE_PLUGINS:BOOL=OFF" "-DENABLE_FRONTEND:BOOL=OFF" `
+              "-DCMAKE_PREFIX_PATH:PATH=$prefix" }
           Invoke-Checked { cmake --build obs-build --target obs-frontend-api --config RelWithDebInfo --parallel }
           Invoke-Checked { cmake --install obs-build --component Development --config RelWithDebInfo --prefix "$root/obs-sdk" }
           } catch {

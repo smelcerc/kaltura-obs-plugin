@@ -79,6 +79,7 @@ else()
   target_link_libraries(kaltura-platform PUBLIC Qt6::Core ${KALTURA_LIVE_PLATFORM_LIBRARIES})
 endif()
 target_compile_definitions(kaltura-platform PRIVATE ${KALTURA_LIVE_PLATFORM_DEFINITIONS})
+target_compile_definitions(kaltura-platform PRIVATE QT_NO_KEYWORDS)
 
 add_library(${PROJECT_NAME} MODULE
   src/plugin-main.cpp

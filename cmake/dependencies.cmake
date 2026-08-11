@@ -9,10 +9,15 @@ set(KALTURA_LIVE_OBS_SDK_PATH "" CACHE PATH
 set(KALTURA_LIVE_LIBOBS_LIBRARY "" CACHE FILEPATH "Path to the libobs link library")
 set(KALTURA_LIVE_OBS_FRONTEND_LIBRARY "" CACHE FILEPATH
   "Path to the obs-frontend-api link library")
+set(KALTURA_LIVE_SIMDE_INCLUDE_DIR "" CACHE PATH "Directory containing simde headers")
 
 find_package(Qt6 REQUIRED COMPONENTS Core Network Widgets)
 find_package(libobs QUIET CONFIG)
 find_package(obs-frontend-api QUIET CONFIG)
+if(NOT KALTURA_LIVE_SIMDE_INCLUDE_DIR)
+  find_path(KALTURA_LIVE_SIMDE_INCLUDE_DIR simde/x86/sse2.h
+    HINTS "$ENV{SIMDE_PREFIX}" PATH_SUFFIXES include)
+endif()
 
 if(NOT EXISTS "${KALTURA_LIVE_OBS_SOURCE_PATH}/libobs/obs-module.h")
   message(FATAL_ERROR
@@ -40,6 +45,9 @@ add_subdirectory("${KALTURA_LIVE_OBS_SOURCE_PATH}/deps/libcaption"
   "${CMAKE_CURRENT_BINARY_DIR}/_deps/obs-libcaption-build" EXCLUDE_FROM_ALL)
 
 function(kaltura_configure_obs_target target)
+  if(KALTURA_LIVE_SIMDE_INCLUDE_DIR)
+    target_include_directories(${target} SYSTEM PRIVATE "${KALTURA_LIVE_SIMDE_INCLUDE_DIR}")
+  endif()
   if(TARGET OBS::libobs AND TARGET OBS::obs-frontend-api)
     target_link_libraries(${target} PRIVATE OBS::libobs OBS::obs-frontend-api)
     return()

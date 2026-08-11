@@ -28,6 +28,13 @@ if [ -z "${QTPATHS}" ]; then
   echo "error: no qtpaths executable found below QT_PREFIX=${QT_PREFIX}"
   exit 1
 fi
+CMAKE_PREFIXES="${QT_PREFIX}"
+if command -v brew >/dev/null 2>&1; then
+  SIMDE_PREFIX="$(brew --prefix simde 2>/dev/null || true)"
+  if [ -d "${SIMDE_PREFIX}/include" ]; then
+    CMAKE_PREFIXES="${CMAKE_PREFIXES};${SIMDE_PREFIX}"
+  fi
+fi
 OBS_HEADERS_DIR="${OBS_HEADERS_DIR:-${ROOT_DIR}/third_party/obs-studio}"
 OBS_APP_DIR="${OBS_APP_DIR:-/Applications/OBS.app}"
 OBS_FRAMEWORKS_DIR="${OBS_APP_DIR}/Contents/Frameworks"
@@ -78,7 +85,7 @@ fi
 
 echo "configuring build..."
 cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" -G Ninja \
-  -DCMAKE_PREFIX_PATH="${QT_PREFIX}" \
+  -DCMAKE_PREFIX_PATH="${CMAKE_PREFIXES}" \
   -DKALTURA_LIVE_OBS_APP_FRAMEWORK_PATH="${OBS_FRAMEWORKS_DIR}"
 
 echo "building plugin..."

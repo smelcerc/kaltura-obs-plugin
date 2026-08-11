@@ -32,6 +32,13 @@ if [[ -z "${qtpaths}" ]]; then
   exit 1
 fi
 macos_architectures="${MACOS_ARCHITECTURES:-$(uname -m)}"
+cmake_prefix_path="${qt_prefix}"
+if command -v brew >/dev/null 2>&1; then
+  simde_prefix="$(brew --prefix simde 2>/dev/null || true)"
+  if [[ -d "${simde_prefix}/include" ]]; then
+    cmake_prefix_path="${cmake_prefix_path};${simde_prefix}"
+  fi
+fi
 model_dir="${KALTURA_LIVE_MODEL_SOURCE_DIR:-${build_dir}/release-models}"
 skip_models=false
 if [[ "${1:-}" == "--without-models" ]]; then
@@ -46,7 +53,7 @@ fi
 cmake -S "${project_dir}" -B "${build_dir}" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_OSX_ARCHITECTURES="${macos_architectures}" \
-  -DCMAKE_PREFIX_PATH="${qt_prefix}" \
+  -DCMAKE_PREFIX_PATH="${cmake_prefix_path}" \
   -DKALTURA_LIVE_OBS_SOURCE_PATH="${obs_source}" \
   -DKALTURA_LIVE_OBS_APP_FRAMEWORK_PATH=/Applications/OBS.app/Contents/Frameworks
 cmake --build "${build_dir}" --parallel
