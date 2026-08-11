@@ -27,8 +27,8 @@ std::string buildSrtUri(const StreamOutputConfig &config)
   url.setScheme("srt");
   if (!config.srt.host.empty()) url.setHost(QString::fromUtf8(config.srt.host));
   if (config.srt.port) url.setPort(config.srt.port);
-  url.setQuery({});
-  url.setFragment({});
+  url.setQuery(QString{});
+  url.setFragment(QString{});
   std::string target = url.toString(QUrl::FullyEncoded).toUtf8().toStdString();
   if (!config.srt.streamId.empty()) {
     target += "?streamid=" + config.srt.streamId;
@@ -43,8 +43,8 @@ std::string endpointWithoutSecrets(std::string_view endpoint)
   if (endpoint.empty()) return {};
   QUrl url(QString::fromUtf8(endpoint));
   if (!url.isValid()) return std::string(endpoint);
-  url.setQuery({});
-  url.setFragment({});
+  url.setQuery(QString{});
+  url.setFragment(QString{});
   return url.toString(QUrl::FullyEncoded).toUtf8().toStdString();
 }
 
