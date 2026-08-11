@@ -65,17 +65,25 @@ binary="${build_dir}/libkaltura-live.so"
 
 qt_plugin_dir="$(${qtpaths} --plugin-dir)"
 qt_version="$(${qtpaths} --qt-version)"
+obs_app="${KALTURA_LIVE_OBS_APP_PATH:-/Applications/OBS.app}"
 obs_qt_version="$(plutil -extract CFBundleVersion raw \
-  /Applications/OBS.app/Contents/Frameworks/QtCore.framework/Versions/A/Resources/Info.plist)"
+  "${obs_app}/Contents/Frameworks/QtCore.framework/Versions/A/Resources/Info.plist")"
 if [[ "${qt_version}" != "${obs_qt_version}" ]]; then
   echo "error: Qt development version ${qt_version} does not match OBS Qt ${obs_qt_version}" >&2
   exit 1
 fi
-tls_backend="${qt_plugin_dir}/tls/libqsecuretransportbackend.dylib"
+obs_tls_backend="${obs_app}/Contents/PlugIns/tls/libqsecuretransportbackend.dylib"
+if [[ -f "${obs_tls_backend}" ]]; then
+  tls_backend="${obs_tls_backend}"
+else
+  tls_backend="${qt_plugin_dir}/tls/libqsecuretransportbackend.dylib"
+fi
 if [[ ! -f "${tls_backend}" ]]; then
   echo "error: Secure Transport backend not found at ${tls_backend}" >&2
   exit 1
 fi
+"${project_dir}/scripts/validate-architecture.sh" macos "${tls_backend}" \
+  "${macos_architectures}"
 
 if [[ "${skip_models}" == false ]]; then
   "${project_dir}/scripts/download-whisper-models.sh" "${model_dir}"
