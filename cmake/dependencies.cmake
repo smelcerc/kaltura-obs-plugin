@@ -15,6 +15,8 @@ find_package(Qt6 REQUIRED COMPONENTS Core Network Widgets)
 find_package(libobs QUIET CONFIG)
 find_package(obs-frontend-api QUIET CONFIG)
 if(NOT KALTURA_LIVE_SIMDE_INCLUDE_DIR)
+  # An empty CACHE entry causes find_path() to skip its search entirely.
+  unset(KALTURA_LIVE_SIMDE_INCLUDE_DIR CACHE)
   find_path(KALTURA_LIVE_SIMDE_INCLUDE_DIR simde/x86/sse2.h
     HINTS "$ENV{SIMDE_PREFIX}" PATH_SUFFIXES include)
 endif()
