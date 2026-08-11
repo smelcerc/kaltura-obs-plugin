@@ -29,6 +29,8 @@ jobs:
   build:
     needs: validate
     uses: ./.github/workflows/ci.yml
+    with:
+      include_models: true
 
   publish:
     if: github.ref_type == 'tag'

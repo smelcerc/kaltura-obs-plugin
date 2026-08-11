@@ -9,6 +9,7 @@
 #include <QFrame>
 #include <QFont>
 #include <QLabel>
+#include <QLineEdit>
 #include <QHBoxLayout>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -24,12 +25,26 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QUrl>
+#include <QWheelEvent>
 
 #include <algorithm>
 
 namespace kaltura_live {
 
 namespace {
+class ScrollSafeSpinBox final : public QSpinBox {
+public:
+  using QSpinBox::QSpinBox;
+
+protected:
+  void wheelEvent(QWheelEvent *event) override
+  {
+    // Let the dock's scroll area handle the wheel instead of changing a
+    // connection setting while the user is navigating the page.
+    event->ignore();
+  }
+};
+
 QString statusName(int status)
 {
   switch (status) {
@@ -120,15 +135,20 @@ QString formatHealth(const QString &name, const OutputHealth &health)
     "<div style='font-size:14px'><b>%1</b>&nbsp;&nbsp;"
     "<span style='color:%2'>&#9679;&nbsp;%3</span></div>"
     "<table cellspacing='3' cellpadding='0'>"
-    "<tr><td>Connected</td><td>&nbsp;&nbsp;<b>%4</b></td></tr>"
-    "<tr><td>Bitrate</td><td>&nbsp;&nbsp;<b>%5</b></td></tr>"
-    "<tr><td>Dropped Frames</td><td>&nbsp;&nbsp;<b>%6</b></td></tr>"
-    "<tr><td>Reconnect Attempts</td><td>&nbsp;&nbsp;<b>%7</b></td></tr>"
-    "<tr><td>Latency</td><td>&nbsp;&nbsp;<b>%8</b></td></tr>"
-    "</table>%9")
-    .arg(name, color, state, connected, formatBitrate(health.bitrateKbps))
+    "<tr><td>Protocol</td><td>&nbsp;&nbsp;<b>%4</b></td></tr>"
+    "<tr><td>Connected</td><td>&nbsp;&nbsp;<b>%5</b></td></tr>"
+    "<tr><td>Bitrate</td><td>&nbsp;&nbsp;<b>%6</b></td></tr>"
+    "<tr><td>Dropped Frames</td><td>&nbsp;&nbsp;<b>%7 / %8</b></td></tr>"
+    "<tr><td>Reconnect Attempts</td><td>&nbsp;&nbsp;<b>%9</b></td></tr>"
+    "<tr><td>Elapsed</td><td>&nbsp;&nbsp;<b>%10s</b></td></tr>"
+    "<tr><td>Connect Time</td><td>&nbsp;&nbsp;<b>%11</b></td></tr>"
+    "</table>%12")
+    .arg(name, color, state, QString::fromLatin1(outputProtocolName(health.protocol)),
+         connected, formatBitrate(health.bitrateKbps))
     .arg(health.droppedFrames)
+    .arg(health.totalFrames)
     .arg(health.reconnectAttempts)
+    .arg(health.elapsedSeconds)
     .arg(latency, error);
 }
 
@@ -165,6 +185,7 @@ KalturaDock::KalturaDock(CaptionsToggleCallback captionsToggleCallback,
                          WhisperModelCallback whisperModelCallback,
                          OutputControlCallback primaryControlCallback,
                          OutputControlCallback backupControlCallback,
+                         OutputConfigCallback outputConfigCallback,
                          SettingsCallback settingsCallback,
                          QWidget *parent)
   : QWidget(parent)
@@ -306,11 +327,151 @@ KalturaDock::KalturaDock(CaptionsToggleCallback captionsToggleCallback,
   healthTitleFont.setBold(true);
   streamingTitle_->setFont(healthTitleFont);
   layout->addWidget(streamingTitle_);
+
+  const auto createEditor = [this](OutputEditor &editor, const QString &name) {
+    editor.name = name.toStdString();
+    auto *frame = new QFrame(this);
+    frame->setObjectName(name + "OutputCard");
+    frame->setStyleSheet("QFrame { border: 1px solid palette(mid); border-radius: 8px; }");
+    auto *box = new QVBoxLayout(frame);
+    auto *heading = new QLabel(name.toUpper(), frame);
+    QFont font = heading->font();
+    font.setBold(true);
+    heading->setFont(font);
+    editor.enabled = new QCheckBox("Enabled", frame);
+    editor.protocol = new QComboBox(frame);
+    editor.protocol->addItem("RTMP", static_cast<int>(OutputProtocol::RTMP));
+    editor.protocol->addItem("RTMPS", static_cast<int>(OutputProtocol::RTMPS));
+    editor.protocol->addItem("SRT", static_cast<int>(OutputProtocol::SRT));
+    auto *header = new QHBoxLayout();
+    header->addWidget(heading);
+    header->addStretch(1);
+    header->addWidget(editor.protocol);
+    box->addLayout(header);
+    editor.srtLatencyField = new QWidget(frame);
+    auto *latencyForm = new QFormLayout(editor.srtLatencyField);
+    latencyForm->setContentsMargins(0, 0, 0, 0);
+    editor.latency = new ScrollSafeSpinBox(editor.srtLatencyField);
+    editor.latency->setRange(250, 8000);
+    editor.latency->setValue(3000);
+    editor.latency->setSuffix(" ms");
+    latencyForm->addRow("Latency", editor.latency);
+    box->addWidget(editor.srtLatencyField);
+    auto *detailsToggle = new QToolButton(frame);
+    detailsToggle->setText("Connection details");
+    detailsToggle->setCheckable(true);
+    detailsToggle->setArrowType(Qt::RightArrow);
+    detailsToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    detailsToggle->setVisible(false);
+    auto *details = new QWidget(frame);
+    auto *detailsBox = new QVBoxLayout(details);
+    detailsBox->setContentsMargins(12, 0, 0, 0);
+    editor.endpoint = new QLineEdit(frame);
+    editor.endpoint->setPlaceholderText("rtmps:// or srt:// ingest endpoint");
+    auto *common = new QFormLayout();
+    common->addRow(editor.enabled);
+    common->addRow("Endpoint", editor.endpoint);
+    detailsBox->addLayout(common);
+
+    editor.rtmpFields = new QWidget(frame);
+    auto *rtmpForm = new QFormLayout(editor.rtmpFields);
+    rtmpForm->setContentsMargins(0, 0, 0, 0);
+    editor.key = new QLineEdit(editor.rtmpFields);
+    editor.key->setEchoMode(QLineEdit::PasswordEchoOnEdit);
+    editor.username = new QLineEdit(editor.rtmpFields);
+    editor.password = new QLineEdit(editor.rtmpFields);
+    editor.password->setEchoMode(QLineEdit::PasswordEchoOnEdit);
+    rtmpForm->addRow("Stream key", editor.key);
+    rtmpForm->addRow("Username", editor.username);
+    rtmpForm->addRow("Password", editor.password);
+    detailsBox->addWidget(editor.rtmpFields);
+
+    editor.srtFields = new QWidget(frame);
+    auto *srtForm = new QFormLayout(editor.srtFields);
+    srtForm->setContentsMargins(0, 0, 0, 0);
+    editor.host = new QLineEdit(editor.srtFields);
+    editor.port = new QSpinBox(editor.srtFields);
+    editor.port->setRange(0, 65535);
+    editor.mode = new QComboBox(editor.srtFields);
+    editor.mode->addItem("Caller", static_cast<int>(SrtMode::Caller));
+    editor.mode->addItem("Listener", static_cast<int>(SrtMode::Listener));
+    editor.mode->addItem("Rendezvous", static_cast<int>(SrtMode::Rendezvous));
+    editor.streamId = new QLineEdit(editor.srtFields);
+    srtForm->addRow("Host", editor.host);
+    srtForm->addRow("Port", editor.port);
+    srtForm->addRow("Mode", editor.mode);
+    srtForm->addRow("Stream ID", editor.streamId);
+    detailsBox->addWidget(editor.srtFields);
+
+    auto *advancedToggle = new QToolButton(frame);
+    advancedToggle->setText("Advanced options");
+    advancedToggle->setCheckable(true);
+    advancedToggle->setArrowType(Qt::RightArrow);
+    advancedToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    auto *advanced = new QWidget(frame);
+    auto *advancedForm = new QFormLayout(advanced);
+    advancedForm->setContentsMargins(12, 0, 0, 0);
+    editor.passphrase = new QLineEdit(advanced);
+    editor.passphrase->setEchoMode(QLineEdit::PasswordEchoOnEdit);
+    editor.pbkeylen = new QComboBox(advanced);
+    editor.pbkeylen->addItem("Automatic", 0);
+    editor.pbkeylen->addItem("16", 16);
+    editor.pbkeylen->addItem("24", 24);
+    editor.pbkeylen->addItem("32", 32);
+    editor.timeout = new QSpinBox(advanced);
+    editor.timeout->setRange(0, 120000);
+    editor.timeout->setSuffix(" ms");
+    editor.packetSize = new QSpinBox(advanced);
+    editor.packetSize->setRange(188, 65536);
+    editor.reconnect = new QCheckBox("Reconnect automatically", advanced);
+    editor.reconnectDelay = new QSpinBox(advanced);
+    editor.reconnectDelay->setRange(1, 60);
+    editor.reconnectDelay->setSuffix(" s");
+    editor.reconnectRetries = new QSpinBox(advanced);
+    editor.reconnectRetries->setRange(0, 10000);
+    advancedForm->addRow("SRT passphrase", editor.passphrase);
+    advancedForm->addRow("SRT PBKEYLEN", editor.pbkeylen);
+    advancedForm->addRow("SRT timeout", editor.timeout);
+    advancedForm->addRow("Packet size", editor.packetSize);
+    advancedForm->addRow(editor.reconnect);
+    advancedForm->addRow("Reconnect delay", editor.reconnectDelay);
+    advancedForm->addRow("Maximum retries", editor.reconnectRetries);
+    advanced->setVisible(false);
+    detailsBox->addWidget(advancedToggle);
+    detailsBox->addWidget(advanced);
+    editor.apply = new QPushButton("Apply " + name + " Settings", frame);
+    editor.apply->setVisible(false);
+    box->addWidget(editor.apply);
+    details->setVisible(false);
+    box->addWidget(detailsToggle);
+    box->addWidget(details);
+    QObject::connect(detailsToggle, &QToolButton::toggled,
+      [detailsToggle, details](bool open) {
+        detailsToggle->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
+        details->setVisible(open);
+      });
+    QObject::connect(advancedToggle, &QToolButton::toggled,
+      [advancedToggle, advanced](bool open) {
+        advancedToggle->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
+        advanced->setVisible(open);
+      });
+    QObject::connect(editor.protocol, &QComboBox::currentIndexChanged,
+                     [this, &editor](int) { updateProtocolFields(editor); });
+    return frame;
+  };
+  auto *startBothButton = new QPushButton("Start Both", this);
+  auto *stopBothButton = new QPushButton("Stop Both", this);
+  auto *bothControls = new QHBoxLayout();
+  bothControls->addWidget(startBothButton);
+  bothControls->addWidget(stopBothButton);
+  layout->addLayout(bothControls);
+  layout->addWidget(createEditor(primaryEditor_, "Primary"));
   layout->addWidget(primaryHealthValue_);
   auto *primaryControls = new QHBoxLayout();
   primaryControls->addWidget(startPrimaryButton_);
   primaryControls->addWidget(stopPrimaryButton_);
   layout->addLayout(primaryControls);
+  layout->addWidget(createEditor(backupEditor_, "Backup"));
   layout->addWidget(backupHealthValue_);
   auto *backupControls = new QHBoxLayout();
   backupControls->addWidget(startBackupButton_);
@@ -392,6 +553,36 @@ KalturaDock::KalturaDock(CaptionsToggleCallback captionsToggleCallback,
   QObject::connect(startPrimaryButton_, &QPushButton::clicked,
                    [callback = primaryControlCallback]() {
                      if (callback) callback(true);
+                   });
+  QObject::connect(startBothButton, &QPushButton::clicked,
+                   [primary = primaryControlCallback, backup = backupControlCallback]() {
+                     if (primary) primary(true);
+                     if (backup) backup(true);
+                   });
+  QObject::connect(stopBothButton, &QPushButton::clicked,
+                   [primary = primaryControlCallback, backup = backupControlCallback]() {
+                     if (primary) primary(false);
+                     if (backup) backup(false);
+                   });
+  QObject::connect(primaryEditor_.protocol, &QComboBox::activated,
+                   [this, callback = outputConfigCallback](int) {
+                     if (callback) callback(OutputRole::Primary,
+                                            outputEditorConfig(primaryEditor_));
+                   });
+  QObject::connect(primaryEditor_.latency, &QSpinBox::valueChanged,
+                   [this, callback = outputConfigCallback](int) {
+                     if (callback) callback(OutputRole::Primary,
+                                            outputEditorConfig(primaryEditor_));
+                   });
+  QObject::connect(backupEditor_.protocol, &QComboBox::activated,
+                   [this, callback = outputConfigCallback](int) {
+                     if (callback) callback(OutputRole::Backup,
+                                            outputEditorConfig(backupEditor_));
+                   });
+  QObject::connect(backupEditor_.latency, &QSpinBox::valueChanged,
+                   [this, callback = outputConfigCallback](int) {
+                     if (callback) callback(OutputRole::Backup,
+                                            outputEditorConfig(backupEditor_));
                    });
   QObject::connect(stopPrimaryButton_, &QPushButton::clicked,
                    [callback = std::move(primaryControlCallback)]() {
@@ -565,14 +756,6 @@ void KalturaDock::setCaptionStatus(const QString &status, bool error)
 
 void KalturaDock::setProjectSettings(const PluginSettings &settings)
 {
-  const bool primaryEnabled =
-    settings.preferredEndpoint != StreamingEndpoint::Backup;
-  const bool backupEnabled =
-    settings.preferredEndpoint != StreamingEndpoint::Primary;
-  startPrimaryButton_->setVisible(primaryEnabled);
-  stopPrimaryButton_->setVisible(primaryEnabled);
-  startBackupButton_->setVisible(backupEnabled);
-  stopBackupButton_->setVisible(backupEnabled);
   if (settings.kalturaSession.empty()) {
     statusValue_->setText("<span style='color:#ed4245'>&#9679;&nbsp;<b>Not connected</b></span>");
   } else if (settings.selectedEntryId.empty()) {
@@ -660,22 +843,111 @@ void KalturaDock::setStreamingHealth(const StreamingHealth &health)
            state == OutputHealthState::Reconnecting || state == OutputHealthState::Stopping;
   };
   const bool primaryAvailable = health.primary.state != OutputHealthState::Disabled;
-  primaryHealthValue_->setVisible(primaryAvailable);
-  startPrimaryButton_->setVisible(primaryAvailable);
-  stopPrimaryButton_->setVisible(primaryAvailable);
+  primaryHealthValue_->setVisible(true);
+  startPrimaryButton_->setVisible(true);
+  stopPrimaryButton_->setVisible(true);
   const bool primaryActive = activeOrTransitioning(health.primary.state);
   startPrimaryButton_->setEnabled(primaryAvailable && !primaryActive);
   stopPrimaryButton_->setEnabled(primaryAvailable && primaryActive &&
                                  health.primary.state != OutputHealthState::Stopping);
   const bool backupAvailable = health.backup.state != OutputHealthState::Disabled;
-  backupHealthValue_->setVisible(backupAvailable);
-  startBackupButton_->setVisible(backupAvailable);
-  stopBackupButton_->setVisible(backupAvailable);
+  backupHealthValue_->setVisible(true);
+  startBackupButton_->setVisible(true);
+  stopBackupButton_->setVisible(true);
   const bool backupActive = activeOrTransitioning(health.backup.state);
   startBackupButton_->setEnabled(backupAvailable && !backupActive);
   stopBackupButton_->setEnabled(backupAvailable && backupActive &&
                                 health.backup.state != OutputHealthState::Stopping);
-  streamingTitle_->setVisible(primaryAvailable || backupAvailable);
+  streamingTitle_->setVisible(true);
+}
+
+void KalturaDock::updateProtocolFields(OutputEditor &editor)
+{
+  const auto protocol = static_cast<OutputProtocol>(editor.protocol->currentData().toInt());
+  editor.rtmpFields->setVisible(protocol != OutputProtocol::SRT);
+  editor.srtFields->setVisible(protocol == OutputProtocol::SRT);
+  editor.srtLatencyField->setVisible(protocol == OutputProtocol::SRT);
+  editor.endpoint->setPlaceholderText(protocol == OutputProtocol::SRT
+    ? "srt://host:port (optional when Host and Port are set)"
+    : protocol == OutputProtocol::RTMPS ? "rtmps://ingest.example.com/app"
+                                        : "rtmp://ingest.example.com/app");
+}
+
+void KalturaDock::populateOutputEditor(OutputEditor &editor,
+                                       const StreamOutputConfig &config)
+{
+  editor.loadedConfig = config;
+  const QList<QObject *> controls{editor.enabled, editor.protocol, editor.endpoint,
+    editor.key, editor.username, editor.password, editor.host, editor.port, editor.mode,
+    editor.latency, editor.passphrase, editor.pbkeylen, editor.streamId, editor.timeout,
+    editor.packetSize, editor.reconnect, editor.reconnectDelay, editor.reconnectRetries};
+  std::vector<std::unique_ptr<QSignalBlocker>> blockers;
+  blockers.reserve(static_cast<size_t>(controls.size()));
+  for (QObject *control : controls)
+    blockers.push_back(std::make_unique<QSignalBlocker>(control));
+  editor.enabled->setChecked(config.enabled);
+  editor.protocol->setCurrentIndex(std::max(0, editor.protocol->findData(
+    static_cast<int>(config.protocol))));
+  editor.endpoint->setText(QString::fromUtf8(config.endpoint));
+  editor.key->setText(QString::fromUtf8(config.streamKey));
+  editor.username->setText(QString::fromUtf8(config.username));
+  editor.password->setText(QString::fromUtf8(config.password));
+  editor.host->setText(QString::fromUtf8(config.srt.host));
+  editor.port->setValue(config.srt.port);
+  editor.mode->setCurrentIndex(std::max(0, editor.mode->findData(static_cast<int>(config.srt.mode))));
+  editor.latency->setValue(config.srt.latencyMs);
+  editor.passphrase->setText(QString::fromUtf8(config.srt.passphrase));
+  editor.pbkeylen->setCurrentIndex(std::max(0, editor.pbkeylen->findData(config.srt.pbkeylen)));
+  editor.streamId->setText(QString::fromUtf8(config.srt.streamId));
+  editor.timeout->setValue(config.srt.timeoutMs);
+  editor.packetSize->setValue(config.srt.packetSize);
+  editor.reconnect->setChecked(config.reconnect.enabled);
+  editor.reconnectDelay->setValue(config.reconnect.delaySeconds);
+  editor.reconnectRetries->setValue(config.reconnect.maxRetries);
+  updateProtocolFields(editor);
+}
+
+StreamOutputConfig KalturaDock::outputEditorConfig(const OutputEditor &editor) const
+{
+  StreamOutputConfig config = editor.loadedConfig;
+  config.name = editor.name;
+  config.enabled = editor.enabled->isChecked();
+  config.protocol = static_cast<OutputProtocol>(editor.protocol->currentData().toInt());
+  config.endpoint = editor.endpoint->text().trimmed().toUtf8().toStdString();
+  config.streamKey = editor.key->text().toUtf8().toStdString();
+  config.username = editor.username->text().trimmed().toUtf8().toStdString();
+  config.password = editor.password->text().toUtf8().toStdString();
+  config.srt.host = editor.host->text().trimmed().toUtf8().toStdString();
+  config.srt.port = static_cast<uint16_t>(editor.port->value());
+  config.srt.mode = static_cast<SrtMode>(editor.mode->currentData().toInt());
+  config.srt.latencyMs = editor.latency->value();
+  config.srt.passphrase = editor.passphrase->text().toUtf8().toStdString();
+  config.srt.pbkeylen = editor.pbkeylen->currentData().toInt();
+  config.srt.streamId = editor.streamId->text().toUtf8().toStdString();
+  config.srt.timeoutMs = editor.timeout->value();
+  config.srt.packetSize = editor.packetSize->value();
+  config.reconnect.enabled = editor.reconnect->isChecked();
+  config.reconnect.delaySeconds = editor.reconnectDelay->value();
+  config.reconnect.maxRetries = editor.reconnectRetries->value();
+  config.manualOverride = true;
+  if (config.protocol == OutputProtocol::RTMP && !config.kalturaRtmpEndpoint.empty())
+    config.endpoint = config.kalturaRtmpEndpoint;
+  else if (config.protocol == OutputProtocol::RTMPS && !config.kalturaRtmpsEndpoint.empty())
+    config.endpoint = config.kalturaRtmpsEndpoint;
+  else if (config.protocol == OutputProtocol::SRT && !config.kalturaSrtEndpoint.empty()) {
+    config.endpoint = config.kalturaSrtEndpoint;
+    config.srt.streamId = config.kalturaSrtStreamId;
+  }
+  if (config.protocol != OutputProtocol::SRT && config.streamKey.empty())
+    config.streamKey = "1";
+  return config;
+}
+
+void KalturaDock::setOutputConfigurations(const StreamOutputConfig &primary,
+                                          const StreamOutputConfig &backup)
+{
+  populateOutputEditor(primaryEditor_, primary);
+  populateOutputEditor(backupEditor_, backup);
 }
 
 void KalturaDock::setTheme(Theme theme)

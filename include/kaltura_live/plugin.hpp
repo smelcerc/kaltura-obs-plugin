@@ -58,6 +58,9 @@ private:
   void updateCaptionStatus(std::string status, bool error);
   void controlPrimaryOutput(bool start);
   void controlBackupOutput(bool start);
+  void updateOutputConfiguration(OutputRole role, const StreamOutputConfig &config);
+  bool updateFrontendStreamSettings(const StreamOutputConfig &config,
+                                    std::string &failure);
   void updateCaptionStreamingState();
   bool startCaptionPreview();
   void stopCaptionPreview();

@@ -87,6 +87,7 @@ add_library(${PROJECT_NAME} MODULE
   src/logger.cpp
   src/settings_manager.cpp
   src/settings_dialog.cpp
+  src/stream_output_config.cpp
   src/streaming_manager.cpp
   src/captions/caption_manager.cpp
   src/captions/cea608_caption_inserter.cpp
@@ -145,6 +146,14 @@ if(BUILD_TESTING)
     include "${KALTURA_LIVE_OBS_SOURCE_PATH}/libobs")
   target_link_libraries(kaltura-cea608-caption-tests PRIVATE Qt6::Core)
   add_test(NAME kaltura-cea608-caption-tests COMMAND kaltura-cea608-caption-tests)
+
+  add_executable(kaltura-stream-output-tests
+    tests/stream_output_config_tests.cpp
+    src/stream_output_config.cpp)
+  set_target_properties(kaltura-stream-output-tests PROPERTIES AUTOMOC OFF)
+  target_include_directories(kaltura-stream-output-tests PRIVATE include)
+  target_link_libraries(kaltura-stream-output-tests PRIVATE Qt6::Core)
+  add_test(NAME kaltura-stream-output-tests COMMAND kaltura-stream-output-tests)
 endif()
 
 set(CPACK_PACKAGE_NAME "kaltura-live")

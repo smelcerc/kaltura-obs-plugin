@@ -2,6 +2,12 @@ name: Cross-platform CI
 
 on:
   workflow_call:
+    inputs:
+      include_models:
+        description: Include verified Whisper models in release installers
+        required: false
+        type: boolean
+        default: false
   push:
     branches: [main, master]
   pull_request:
@@ -36,10 +42,17 @@ jobs:
           git clone --depth 1 --branch "${OBS_VERSION}" \
             https://github.com/obsproject/obs-studio.git third_party/obs-studio
       - name: Configure, build, and test
+        env:
+          INCLUDE_MODELS: ${{ inputs.include_models }}
         run: |
           set +e
           (set -e
-           cmake -S . -B build-ci -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+           model_args=()
+           if [[ "${INCLUDE_MODELS}" == true ]]; then
+             ./scripts/download-whisper-models.sh build-ci/release-models
+             model_args+=("-DKALTURA_LIVE_MODEL_SOURCE_DIR:PATH=${GITHUB_WORKSPACE}/build-ci/release-models")
+           fi
+           cmake -S . -B build-ci -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo "${model_args[@]}"
            cmake --build build-ci --parallel
            ctest --test-dir build-ci --output-on-failure) 2>&1 | tee linux-build.log
           result=${PIPESTATUS[0]}
@@ -105,9 +118,12 @@ jobs:
           BUILD_DIR: ${{ github.workspace }}/build-ci
           DIST_DIR: ${{ github.workspace }}/dist
           MACOS_ARCHITECTURES: ${{ matrix.arch }}
+          INCLUDE_MODELS: ${{ inputs.include_models }}
         run: |
           set +e
-          QT_PREFIX="${QT_PREFIX}" ./scripts/package-macos.sh --without-models \
+          package_args=()
+          if [[ "${INCLUDE_MODELS}" != true ]]; then package_args+=(--without-models); fi
+          QT_PREFIX="${QT_PREFIX}" ./scripts/package-macos.sh "${package_args[@]}" \
             2>&1 | tee macos-build.log
           result=${PIPESTATUS[0]}
           set -e
@@ -216,9 +232,17 @@ jobs:
           $qtCore = Get-ChildItem "$root/qt6" -Filter Qt6Core.dll -File -Recurse | Select-Object -First 1
           if (!$qtCore) { throw "Qt6Core.dll was not found below $root/qt6" }
           $env:PATH = "$($qtCore.DirectoryName);$env:PATH"
-          Invoke-Checked { cmake -S . -B build-ci -G "Visual Studio 17 2022" -A x64 `
-              "-DCMAKE_PREFIX_PATH:PATH=$prefix" `
-              "-DKALTURA_LIVE_OBS_SOURCE_PATH:PATH=$env:GITHUB_WORKSPACE/third_party/obs-studio" }
+          $configureArgs = @(
+            '-S', '.', '-B', 'build-ci', '-G', 'Visual Studio 17 2022', '-A', 'x64',
+            "-DCMAKE_PREFIX_PATH:PATH=$prefix",
+            "-DKALTURA_LIVE_OBS_SOURCE_PATH:PATH=$env:GITHUB_WORKSPACE/third_party/obs-studio"
+          )
+          if ('${{ inputs.include_models }}' -eq 'true') {
+            $modelDir = "$root/release-models"
+            Invoke-Checked { bash ./scripts/download-whisper-models.sh $modelDir }
+            $configureArgs += "-DKALTURA_LIVE_MODEL_SOURCE_DIR:PATH=$modelDir"
+          }
+          Invoke-Checked { cmake @configureArgs }
           Invoke-Checked { ./scripts/package-windows.ps1 -BuildDirectory build-ci -DistDirectory dist -Configuration RelWithDebInfo }
           } catch {
             $errorLines = Get-Content $log |

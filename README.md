@@ -1,20 +1,23 @@
 # Kaltura Live for OBS Studio
 
 Kaltura Live is an OBS Studio 32.0+ plugin for selecting Kaltura live entries, configuring Primary
-and Backup RTMP outputs, monitoring output health, and generating private local CEA-608 captions
-with Whisper.
+and Backup RTMP, RTMPS, or SRT outputs, monitoring output health, and generating private local
+CEA-608 captions with Whisper.
 
 ## Features
 
 - Masked Kaltura Session validation against the US Kaltura API endpoint
 - Paged, searchable live-entry browser with thumbnails
 - Primary, Backup, or independently controlled simultaneous outputs
-- Automatic OBS RTMP URL and stream-key configuration with confirmation and rollback
+- Automatic OBS RTMP, RTMPS, and SRT destination configuration with confirmation and rollback
+- Independent Primary/Backup protocol selection and OBS-native start/stop controls
+- Adjustable SRT latency with Kaltura Stream ID support
 - Independent bitrate, dropped-frame, reconnect, and latency health displays
 - Local Whisper Tiny/Base transcription; program audio never leaves the computer
 - Broadcast-safe CEA-608 insertion, program delay, placement, alignment, and health monitoring
 - Custom vocabulary/correction dictionary with CSV import
 - OBS-native settings persistence, theme support, and debug diagnostics
+- Focused, redacted Primary/Backup stream and encoder log exports
 
 ## Install
 

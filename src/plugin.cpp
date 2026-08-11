@@ -32,17 +32,6 @@ constexpr const char *kDockTitle = "Kaltura Live";
 constexpr const char *kSettingsMenuTitle = "Kaltura Live Settings...";
 constexpr const char *kOpenDockMenuTitle = "Open Kaltura Live";
 
-QUrl preferredRtmpUrl(const kaltura_live::api::StreamConfiguration &configuration,
-                      kaltura_live::StreamingEndpoint endpoint)
-{
-  const bool backup = endpoint == kaltura_live::StreamingEndpoint::Backup;
-  const QUrl secure = backup ? configuration.urls.backupSecure
-                             : configuration.urls.primarySecure;
-  if (!secure.isEmpty()) {
-    return secure;
-  }
-  return backup ? configuration.urls.backup : configuration.urls.primary;
-}
 }  // namespace
 
 namespace kaltura_live {
@@ -104,6 +93,9 @@ bool Plugin::initialize()
     [this](WhisperModel model) { setWhisperModel(model); },
     [this](bool start) { controlPrimaryOutput(start); },
     [this](bool start) { controlBackupOutput(start); },
+    [this](OutputRole role, const StreamOutputConfig &config) {
+      updateOutputConfiguration(role, config);
+    },
     [this]() { showSettingsDialog(); }, mainWindow_);
   const bool dockAdded = obs_frontend_add_dock_by_id(kDockId, kDockTitle, dockWidget_);
   if (!dockAdded) {
@@ -349,6 +341,8 @@ void Plugin::showSettingsDialog()
       settingsManager_.settings().preferredEndpoint;
     const auto previousDictionary = settingsManager_.settings().captionDictionary;
     PluginSettings selectedSettings = dialog.selectedSettings();
+    selectedSettings.primaryOutput = settingsManager_.settings().primaryOutput;
+    selectedSettings.backupOutput = settingsManager_.settings().backupOutput;
     if (selectedSettings.preferredEndpoint != previousEndpoint && streamingManager_ &&
         streamingManager_->anyOutputActive()) {
       selectedSettings.preferredEndpoint = previousEndpoint;
@@ -405,6 +399,7 @@ void Plugin::applySettings()
   if (dockWidget_) {
     dockWidget_->setTheme(settings.theme);
     dockWidget_->setProjectSettings(settings);
+    dockWidget_->setOutputConfigurations(settings.primaryOutput, settings.backupOutput);
     dockWidget_->setCaptionsEnabled(settings.captionsEnabled);
     dockWidget_->setCaptionConfiguration(settings.captionDelayMs, settings.captionStyle,
                                          settings.whisperModel);
@@ -556,11 +551,18 @@ void Plugin::stopCaptionPreview()
 
 void Plugin::controlPrimaryOutput(bool start)
 {
-  if (!streamingManager_ ||
-      settingsManager_.settings().preferredEndpoint == StreamingEndpoint::Backup) {
+  if (!streamingManager_) {
     return;
   }
   std::string failure;
+  if (start && !streamingManager_->anyOutputActive() &&
+      !streamingManager_->anyOutputRequested() &&
+      !updateFrontendStreamSettings(
+        streamingManager_->outputConfiguration(OutputRole::Primary), failure)) {
+    QMessageBox::warning(mainWindow_, "Could Not Update OBS Stream Settings",
+                         QString::fromUtf8(failure));
+    return;
+  }
   const bool succeeded = start ? streamingManager_->startPrimary(failure)
                                : streamingManager_->stopPrimary(failure);
   if (!succeeded) {
@@ -574,11 +576,18 @@ void Plugin::controlPrimaryOutput(bool start)
 
 void Plugin::controlBackupOutput(bool start)
 {
-  if (!streamingManager_ ||
-      settingsManager_.settings().preferredEndpoint == StreamingEndpoint::Primary) {
+  if (!streamingManager_) {
     return;
   }
   std::string failure;
+  if (start && !streamingManager_->anyOutputActive() &&
+      !streamingManager_->anyOutputRequested() &&
+      !updateFrontendStreamSettings(
+        streamingManager_->outputConfiguration(OutputRole::Backup), failure)) {
+    QMessageBox::warning(mainWindow_, "Could Not Update OBS Stream Settings",
+                         QString::fromUtf8(failure));
+    return;
+  }
   const bool succeeded = start ? streamingManager_->startBackup(failure)
                                : streamingManager_->stopBackup(failure);
   if (!succeeded) {
@@ -588,6 +597,91 @@ void Plugin::controlBackupOutput(bool start)
   }
   updateCaptionStreamingState();
   updateStreamingHealth();
+}
+
+void Plugin::updateOutputConfiguration(OutputRole role, const StreamOutputConfig &config)
+{
+  if (!streamingManager_) return;
+  std::string failure;
+  if (!streamingManager_->configureOutput(role, config, failure)) {
+    QMessageBox::warning(mainWindow_, "Could Not Apply Output Settings",
+                         QString::fromUtf8(failure));
+    if (dockWidget_)
+      dockWidget_->setOutputConfigurations(
+        settingsManager_.settings().primaryOutput,
+        settingsManager_.settings().backupOutput);
+    return;
+  }
+  if (role == OutputRole::Primary && !updateFrontendStreamSettings(config, failure)) {
+    QMessageBox::warning(mainWindow_, "Could Not Update OBS Stream Settings",
+                         QString::fromUtf8(failure));
+    return;
+  }
+  PluginSettings updated = settingsManager_.settings();
+  if (role == OutputRole::Primary) updated.primaryOutput = config;
+  else updated.backupOutput = config;
+  if (role == OutputRole::Primary && updated.primaryOutput.protocol != OutputProtocol::SRT &&
+      updated.primaryOutput.streamKey.empty())
+    updated.primaryOutput.streamKey = "1";
+  if (role == OutputRole::Backup && updated.backupOutput.protocol != OutputProtocol::SRT &&
+      updated.backupOutput.streamKey.empty())
+    updated.backupOutput.streamKey = "1";
+  settingsManager_.update(updated);
+  if (dockWidget_)
+    dockWidget_->setOutputConfigurations(updated.primaryOutput, updated.backupOutput);
+  obs_frontend_save();
+  updateStreamingHealth();
+}
+
+bool Plugin::updateFrontendStreamSettings(const StreamOutputConfig &config,
+                                          std::string &failure)
+{
+  if (!config.enabled) return true;
+  StreamOutputConfig normalized = config;
+  if (normalized.protocol != OutputProtocol::SRT && normalized.streamKey.empty())
+    normalized.streamKey = "1";
+  if (!validateOutputConfig(normalized, failure)) return false;
+
+  if (!previousServiceSettings_) {
+    obs_service_t *currentService = obs_frontend_get_streaming_service();
+    if (currentService) {
+      const char *serviceId = obs_service_get_id(currentService);
+      if (serviceId && *serviceId) {
+        previousServiceId_ = serviceId;
+        previousServiceSettings_ = obs_service_get_settings(currentService);
+      }
+    }
+  }
+
+  obs_data_t *settings = obs_data_create();
+  const std::string server = normalized.protocol == OutputProtocol::SRT
+    ? buildSrtUri(normalized) : normalized.endpoint;
+  const std::string key = normalized.protocol == OutputProtocol::SRT
+    ? std::string{} : normalized.streamKey;
+  obs_data_set_string(settings, "server", server.c_str());
+  obs_data_set_string(settings, "key", key.c_str());
+  const bool useAuthentication = normalized.protocol == OutputProtocol::SRT
+    ? !normalized.srt.passphrase.empty()
+    : (!normalized.username.empty() && !normalized.password.empty());
+  obs_data_set_bool(settings, "use_auth", useAuthentication);
+  obs_data_set_bool(settings, "bwtest", false);
+  obs_data_set_string(settings, "username", normalized.username.c_str());
+  obs_data_set_string(settings, "password",
+    normalized.protocol == OutputProtocol::SRT ? normalized.srt.passphrase.c_str()
+                                               : normalized.password.c_str());
+  obs_service_t *service = obs_service_create(
+    "rtmp_custom", "kaltura_live_primary_service", settings, nullptr);
+  obs_data_release(settings);
+  if (!service) {
+    failure = "OBS could not create the Primary streaming service.";
+    return false;
+  }
+  obs_frontend_set_streaming_service(service);
+  obs_frontend_save_streaming_service();
+  obs_service_release(service);
+  Logger::write(LogLevel::Info, "OBS Stream settings synchronized to Primary " +
+                std::string(outputProtocolName(normalized.protocol)) + " output");
+  return true;
 }
 
 void Plugin::updateCaptionStreamingState()
@@ -646,6 +740,22 @@ void Plugin::restoreStreamingConfiguration()
     return;
   }
   const PluginSettings &settings = settingsManager_.settings();
+  if (!settings.primaryOutput.endpoint.empty() || !settings.backupOutput.endpoint.empty()) {
+    std::string failure;
+    const bool primaryReady = streamingManager_->configureOutput(
+      OutputRole::Primary, settings.primaryOutput, failure);
+    if (!primaryReady)
+      Logger::write(LogLevel::Warning, "Could not restore Primary output: " + failure);
+    else if (!updateFrontendStreamSettings(settings.primaryOutput, failure))
+      Logger::write(LogLevel::Warning, "Could not restore OBS Stream settings: " + failure);
+    failure.clear();
+    const bool backupReady = streamingManager_->configureOutput(
+      OutputRole::Backup, settings.backupOutput, failure);
+    if (!backupReady)
+      Logger::write(LogLevel::Warning, "Could not restore Backup output: " + failure);
+    updateStreamingHealth();
+    return;
+  }
   if (settings.kalturaSession.empty() || settings.selectedEntryId.empty()) {
     streamingManager_->clearConfiguration();
     updateStreamingHealth();
@@ -672,6 +782,12 @@ void Plugin::restoreStreamingConfiguration()
       if (!streamingManager_->configure(*result.value, endpoint, failure)) {
         Logger::write(LogLevel::Warning,
                       "Could not restore Kaltura output routing: " + failure);
+      } else {
+        const StreamOutputConfig primaryConfiguration =
+          streamingManager_->outputConfiguration(OutputRole::Primary);
+        if (!updateFrontendStreamSettings(primaryConfiguration, failure))
+          Logger::write(LogLevel::Warning,
+                        "Could not synchronize OBS Stream settings: " + failure);
       }
       updateStreamingHealth();
     });
@@ -694,72 +810,18 @@ bool Plugin::applyObsStreamSettings(const api::StreamConfiguration &configuratio
   if (!streamingManager_->configure(configuration, endpoint, failure)) {
     return false;
   }
-
-  const StreamingEndpoint effectiveEndpoint =
-    endpoint == StreamingEndpoint::Both ? StreamingEndpoint::Primary : endpoint;
-  const QUrl streamUrl = preferredRtmpUrl(configuration, effectiveEndpoint);
-  if (!streamUrl.isValid() ||
-      (streamUrl.scheme() != "rtmp" && streamUrl.scheme() != "rtmps") ||
-      configuration.keys.rtmp.empty()) {
-    failure = "Kaltura returned an invalid RTMP URL or stream key.";
+  const StreamOutputConfig primaryConfiguration =
+    streamingManager_->outputConfiguration(OutputRole::Primary);
+  if (!updateFrontendStreamSettings(primaryConfiguration, failure)) {
     streamingManager_->clearConfiguration();
     return false;
   }
-
-  bool createdSnapshot = false;
-  if (!previousServiceSettings_) {
-    obs_service_t *currentService = obs_frontend_get_streaming_service();
-    if (!currentService) {
-      failure = "OBS has no current streaming service to back up.";
-      streamingManager_->clearConfiguration();
-      return false;
-    }
-    const char *serviceId = obs_service_get_id(currentService);
-    if (!serviceId || !*serviceId) {
-      failure = "OBS returned an invalid current streaming service.";
-      streamingManager_->clearConfiguration();
-      return false;
-    }
-    previousServiceId_ = serviceId;
-    previousServiceSettings_ = obs_service_get_settings(currentService);
-    if (!previousServiceSettings_) {
-      previousServiceId_.clear();
-      failure = "OBS streaming settings could not be backed up.";
-      streamingManager_->clearConfiguration();
-      return false;
-    }
-    createdSnapshot = true;
-  }
-
-  obs_data_t *settings = obs_data_create();
-  const QByteArray server = streamUrl.toString(QUrl::FullyEncoded).toUtf8();
-  obs_data_set_string(settings, "server", server.constData());
-  obs_data_set_string(settings, "key", configuration.keys.rtmp.c_str());
-  const bool useAuthentication = !configuration.keys.username.empty() &&
-                                 !configuration.keys.password.empty();
-  obs_data_set_bool(settings, "use_auth", useAuthentication);
-  obs_data_set_bool(settings, "bwtest", false);
-  if (useAuthentication) {
-    obs_data_set_string(settings, "username", configuration.keys.username.c_str());
-    obs_data_set_string(settings, "password", configuration.keys.password.c_str());
-  }
-
-  obs_service_t *service =
-    obs_service_create("rtmp_custom", "kaltura_live_service", settings, nullptr);
-  obs_data_release(settings);
-  if (!service) {
-    if (createdSnapshot) {
-      clearPreviousObsStreamSettings();
-    }
-    failure = "OBS could not create a custom RTMP streaming service.";
-    streamingManager_->clearConfiguration();
-    return false;
-  }
-
-  obs_frontend_set_streaming_service(service);
-  obs_frontend_save_streaming_service();
-  obs_service_release(service);
-  Logger::write(LogLevel::Info, "OBS streaming service configured for selected entry");
+  PluginSettings updated = settingsManager_.settings();
+  updated.primaryOutput = streamingManager_->outputConfiguration(OutputRole::Primary);
+  updated.backupOutput = streamingManager_->outputConfiguration(OutputRole::Backup);
+  settingsManager_.update(updated);
+  Logger::write(LogLevel::Info,
+                "Independent Primary and Backup outputs configured for selected entry");
   updateStreamingHealth();
   return true;
 }

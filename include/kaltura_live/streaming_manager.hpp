@@ -2,6 +2,7 @@
 
 #include "kaltura_live/api/models.hpp"
 #include "kaltura_live/settings_manager.hpp"
+#include "kaltura_live/stream_output_config.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -29,6 +30,9 @@ struct OutputHealth {
   uint64_t reconnectAttempts = 0;
   int latencyMs = 0;
   float congestion = 0.0F;
+  uint64_t elapsedSeconds = 0;
+  OutputProtocol protocol = OutputProtocol::RTMPS;
+  std::string endpoint;
   std::string lastError;
 };
 
@@ -58,6 +62,9 @@ public:
 
   bool configure(const api::StreamConfiguration &configuration,
                  StreamingEndpoint mode, std::string &failure);
+  bool configureOutput(OutputRole role, const StreamOutputConfig &configuration,
+                       std::string &failure);
+  [[nodiscard]] StreamOutputConfig outputConfiguration(OutputRole role) const;
   void clearConfiguration();
   void setProgramDelay(int delayMs);
 

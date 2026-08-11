@@ -68,6 +68,7 @@ private:
     QString &failure) const;
   void importCaptionDictionaryCsv();
   void saveSampleCaptionDictionaryCsv();
+  void downloadStreamLogs();
 
   api::KalturaApiClient &apiClient_;
   QLineEdit *sessionEdit_ = nullptr;

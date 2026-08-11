@@ -35,7 +35,7 @@ GitHub Release. Quit OBS before replacing an installed plugin.
 2. Select **Validate**, or reopen the page to validate an existing saved KS automatically.
 3. Confirm the connected user, partner, and expiration.
 4. Search, sort, or filter the live-entry list and select one entry.
-5. Select Primary, Backup, or Both and save.
+5. Confirm the independent Primary and Backup destinations and save.
 
 The plugin never displays the KS or stream key in plain text. The selected entry and output routing
 are saved with the current OBS project.
@@ -46,6 +46,10 @@ are saved with the current OBS project.
 - **Backup only:** the normal OBS streaming output targets Kaltura Backup.
 - **Both:** Primary uses the normal OBS output and Backup uses a managed auxiliary output. Their
   dock buttons start and stop independently.
+- Select RTMP, RTMPS, or SRT independently for each destination in the dock. Protocol changes apply
+  immediately while the corresponding output is stopped.
+- SRT latency defaults to 3000 ms and accepts 250–8000 ms. Mouse-wheel page scrolling does not
+  change the latency value.
 
 Review the confirmation dialog before allowing the plugin to change OBS output settings. Use the
 provided revert action to restore the previous OBS service configuration.
@@ -90,6 +94,9 @@ transcript text is replaced deterministically. A sample is available from Settin
 - **Captions are late:** increase program delay before starting the output or select Tiny.
 - **Transcript exists but monitor does not:** copy both histories and inspect caption health/drops.
 - **Monitor matches but player differs:** inspect RTMP reconnects and the downstream caption/VTT path.
+- **Streaming reconnects or fails:** open **Settings → Advanced → Download Stream Logs…** to save a
+  focused Primary/Backup destination, encoder, muxer, SRT, and RTMP report. Secret values are
+  redacted automatically.
 
 Before sharing diagnostics publicly, remove KS values, stream URLs containing query tokens, user
 names, partner information, and local filesystem paths.

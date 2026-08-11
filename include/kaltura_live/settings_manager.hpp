@@ -1,6 +1,7 @@
 #pragma once
 
 #include "kaltura_live/captions/caption_dictionary.hpp"
+#include "kaltura_live/stream_output_config.hpp"
 
 #include <obs-data.h>
 
@@ -73,6 +74,8 @@ struct PluginSettings {
   WhisperModel whisperModel = WhisperModel::Tiny;
   std::vector<captions::CaptionDictionaryEntry> captionDictionary;
   Theme theme = Theme::System;
+  StreamOutputConfig primaryOutput{.name = "Primary", .enabled = false};
+  StreamOutputConfig backupOutput{.name = "Backup", .enabled = false};
 };
 
 [[nodiscard]] bool isValidKalturaSession(std::string_view value);
@@ -92,11 +95,16 @@ public:
 
 private:
   void persistSession();
+  void persistOutputSecrets();
 
   PluginSettings settings_{};
   std::unique_ptr<platform::CredentialStore> credentialStore_;
   std::string credentialId_;
   std::string persistedSession_;
+  std::string primaryCredentialId_;
+  std::string backupCredentialId_;
+  std::string persistedPrimarySecrets_;
+  std::string persistedBackupSecrets_;
 };
 
 }  // namespace kaltura_live

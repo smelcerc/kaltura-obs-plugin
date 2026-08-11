@@ -11,8 +11,10 @@
 #include <QDialogButtonBox>
 #include <QDesktopServices>
 #include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHeaderView>
@@ -28,11 +30,14 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QRegularExpression>
 #include <QScrollBar>
 #include <QScrollArea>
+#include <QSaveFile>
 #include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QSslSocket>
+#include <QStandardPaths>
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QTextDocument>
@@ -40,6 +45,8 @@
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
+
+#include <util/platform.h>
 
 #include <algorithm>
 #include <set>
@@ -51,6 +58,99 @@ namespace {
 
 constexpr int kMaximumDictionaryTerms = 250;
 constexpr int kMaximumDictionaryFieldLength = 128;
+
+QString obsLogDirectory()
+{
+  char path[4096] = {};
+  if (os_get_config_path(path, sizeof(path), "obs-studio/logs") <= 0) {
+    return {};
+  }
+  return QDir::fromNativeSeparators(QString::fromUtf8(path));
+}
+
+QString redactStreamSecrets(QString line)
+{
+  static const QRegularExpression querySecret(
+    R"(([?&](?:t|token|auth|password|passphrase|streamid)=)([^&\s'"\]]+))",
+    QRegularExpression::CaseInsensitiveOption);
+  static const QRegularExpression labeledStreamId(
+    R"(((?:stream[_ ]?id)\s*(?:=|:|\[)\s*)([^\]&\s]+))",
+    QRegularExpression::CaseInsensitiveOption);
+  static const QRegularExpression urlCredentials(R"((://)[^/@\s:]+:[^/@\s]+@)");
+
+  line.replace(querySecret, "\\1<redacted>");
+  line.replace(labeledStreamId, "\\1<redacted>");
+  line.replace(urlCredentials, "\\1<credentials-redacted>@");
+  return line;
+}
+
+bool isKalturaStreamingLine(const QString &line)
+{
+  if (!line.contains("[kaltura-live]", Qt::CaseInsensitive)) return false;
+  static const QStringList terms = {
+    "stream", "output", "encoder", "primary", "backup", "reconnect",
+    "SRT", "RTMP", "RTMPS", "caption queue"
+  };
+  return std::any_of(terms.cbegin(), terms.cend(), [&line](const QString &term) {
+    return line.contains(term, Qt::CaseInsensitive);
+  });
+}
+
+bool isNativeStreamingLine(const QString &line)
+{
+  static const QStringList terms = {
+    "[x264 encoder:", "[VideoToolbox encoder:", "[obs-ffmpeg mpegts muxer",
+    "[rtmp stream:", "Output 'adv_stream'", "Output 'simple_stream'",
+    "Output 'kaltura_", "advanced_video_stream", "simple_video_stream",
+    "kaltura_backup_output", "process_packet:", "==== Streaming Start",
+    "==== Streaming Stop", "Reconnecting in", "Could not update timestamps for skipped samples"
+  };
+  return std::any_of(terms.cbegin(), terms.cend(), [&line](const QString &term) {
+    return line.contains(term, Qt::CaseInsensitive);
+  });
+}
+
+QString filteredStreamLog(const QString &path)
+{
+  QFile input(path);
+  if (!input.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+
+  QString result;
+  QTextStream source(&input);
+  QTextStream output(&result);
+  int encoderContextLines = 0;
+  while (!source.atEnd()) {
+    const QString line = source.readLine();
+    const bool encoderHeader = line.contains(" encoder: '", Qt::CaseInsensitive) &&
+      (line.contains("stream", Qt::CaseInsensitive) ||
+       line.contains("kaltura", Qt::CaseInsensitive));
+    const bool relevant = isKalturaStreamingLine(line) || isNativeStreamingLine(line) ||
+                          encoderContextLines > 0;
+    if (relevant) output << redactStreamSecrets(line) << '\n';
+    if (encoderHeader) encoderContextLines = 16;
+    else if (encoderContextLines > 0) --encoderContextLines;
+  }
+  return result.trimmed();
+}
+
+QString endpointSummary(const StreamOutputConfig &config)
+{
+  const QUrl endpoint(QString::fromUtf8(config.endpoint));
+  if (!endpoint.isValid() || endpoint.host().isEmpty()) return "not configured";
+  QString authority = endpoint.scheme() + "://" + endpoint.host();
+  if (endpoint.port() > 0) authority += ':' + QString::number(endpoint.port());
+  return authority + endpoint.path();
+}
+
+const char *srtModeName(SrtMode mode)
+{
+  switch (mode) {
+  case SrtMode::Caller: return "caller";
+  case SrtMode::Listener: return "listener";
+  case SrtMode::Rendezvous: return "rendezvous";
+  }
+  return "unknown";
+}
 
 bool validDictionaryField(const QString &value, bool allowEmpty = false)
 {
@@ -207,18 +307,6 @@ QString entryStatusName(int status)
   case 7: return "No content";
   default: return QString("Unknown (%1)").arg(status);
   }
-}
-
-QUrl selectedRtmpUrl(const api::StreamConfiguration &configuration,
-                     StreamingEndpoint endpoint)
-{
-  const bool backup = endpoint == StreamingEndpoint::Backup;
-  const QUrl secure = backup ? configuration.urls.backupSecure
-                             : configuration.urls.primarySecure;
-  if (!secure.isEmpty()) {
-    return secure;
-  }
-  return backup ? configuration.urls.backup : configuration.urls.primary;
 }
 
 enum EntryColumn {
@@ -443,6 +531,8 @@ SettingsDialog::SettingsDialog(const PluginSettings &currentSettings,
   endpointLayout->addWidget(backupEndpoint_);
   endpointLayout->addWidget(bothEndpoints_);
   streamingLayout->addWidget(endpointGroup);
+  endpointGroup->setVisible(false);
+  bothEndpoints_->setChecked(true);
 
   auto *captionPresentationGroup = new QGroupBox("Caption presentation", streamingTab);
   auto *captionPresentationLayout = new QFormLayout(captionPresentationGroup);
@@ -532,17 +622,7 @@ SettingsDialog::SettingsDialog(const PluginSettings &currentSettings,
   streamingLayout->addWidget(dictionaryGroup);
   streamingLayout->addStretch(1);
 
-  switch (currentSettings.preferredEndpoint) {
-  case StreamingEndpoint::Primary:
-    primaryEndpoint_->setChecked(true);
-    break;
-  case StreamingEndpoint::Backup:
-    backupEndpoint_->setChecked(true);
-    break;
-  case StreamingEndpoint::Both:
-    bothEndpoints_->setChecked(true);
-    break;
-  }
+  bothEndpoints_->setChecked(true);
 
   auto *advancedTab = new QWidget(tabs);
   auto *advancedLayout = new QVBoxLayout(advancedTab);
@@ -560,8 +640,13 @@ SettingsDialog::SettingsDialog(const PluginSettings &currentSettings,
     static_cast<int>(currentSettings.loggingLevel)));
   debugLoggingCheck_ = new QCheckBox("Enable debug logging", loggingGroup);
   debugLoggingCheck_->setChecked(currentSettings.debugLogging);
+  auto *downloadStreamLogsButton = new QPushButton("Download Stream Logs…", loggingGroup);
+  downloadStreamLogsButton->setToolTip(
+    "Save a redacted report containing only Kaltura streaming, OBS encoder, muxer, "
+    "SRT, and RTMP log events.");
   loggingLayout->addRow("Logging level:", loggingLevelCombo_);
   loggingLayout->addRow(QString(), debugLoggingCheck_);
+  loggingLayout->addRow(QString(), downloadStreamLogsButton);
 
   auto *appearanceGroup = new QGroupBox("Appearance", advancedTab);
   auto *appearanceLayout = new QFormLayout(appearanceGroup);
@@ -605,6 +690,8 @@ SettingsDialog::SettingsDialog(const PluginSettings &currentSettings,
                            "to download the newest plugin installer.");
     }
   });
+  connect(downloadStreamLogsButton, &QPushButton::clicked,
+          this, [this]() { downloadStreamLogs(); });
   connect(sessionEdit_, &QLineEdit::textChanged, this, [this]() {
     ++validationRequestId_;
     ++entryLoadRequestId_;
@@ -742,10 +829,7 @@ PluginSettings SettingsDialog::selectedSettings() const
 {
   PluginSettings settings = draftSettings_;
   settings.kalturaSession = sessionEdit_->text().toUtf8().toStdString();
-  settings.preferredEndpoint = backupEndpoint_->isChecked()
-                                 ? StreamingEndpoint::Backup
-                                 : bothEndpoints_->isChecked() ? StreamingEndpoint::Both
-                                                               : StreamingEndpoint::Primary;
+  settings.preferredEndpoint = StreamingEndpoint::Both;
   settings.loggingLevel = static_cast<LoggingLevel>(loggingLevelCombo_->currentData().toInt());
   settings.debugLogging = debugLoggingCheck_->isChecked();
   settings.captionStyle = static_cast<CaptionStyle>(captionStyleCombo_->currentData().toInt());
@@ -777,6 +861,125 @@ void SettingsDialog::appendCaptionTranscript(const QString &text)
   const int previousValue = scrollBar->value();
   captionTranscript_->appendPlainText(normalized);
   scrollBar->setValue(followingLatest ? scrollBar->maximum() : previousValue);
+}
+
+void SettingsDialog::downloadStreamLogs()
+{
+  const QString logDirectoryPath = obsLogDirectory();
+  const QDir logDirectory(logDirectoryPath);
+  if (logDirectoryPath.isEmpty() || !logDirectory.exists()) {
+    QMessageBox::warning(this, "Stream Logs Unavailable",
+                         "The OBS log directory could not be found.");
+    return;
+  }
+
+  QString report;
+  QTextStream output(&report);
+  output << "Kaltura Live Stream and Encoder Diagnostic Export\n"
+         << "Generated: " << QDateTime::currentDateTimeUtc().toString(Qt::ISODate) << " UTC\n"
+         << "Plugin version: " KALTURA_LIVE_VERSION_STRING "\n";
+  if (!draftSettings_.selectedEntryId.empty()) {
+    output << "Entry ID: " << QString::fromUtf8(draftSettings_.selectedEntryId) << '\n';
+  }
+
+  const auto writeOutputSummary = [&output](const char *label,
+                                             const StreamOutputConfig &config) {
+    const QUrl endpoint(QString::fromUtf8(config.endpoint));
+    output << '\n' << label << " stream\n"
+           << "  Enabled: " << (config.enabled ? "yes" : "no") << '\n'
+           << "  Protocol: " << outputProtocolName(config.protocol) << '\n'
+           << "  Destination: " << endpointSummary(config) << '\n'
+           << "  Destination query parameters: "
+           << (endpoint.hasQuery() ? "configured (values redacted)" : "none") << '\n'
+           << "  Reconnect: " << (config.reconnect.enabled ? "enabled" : "disabled");
+    if (config.reconnect.enabled) {
+      output << " (delay " << config.reconnect.delaySeconds << "s, maximum "
+             << config.reconnect.maxRetries << " retries)";
+    }
+    output << '\n';
+    if (config.protocol == OutputProtocol::SRT) {
+      output << "  SRT host: "
+             << (config.srt.host.empty() ? endpoint.host()
+                                         : QString::fromUtf8(config.srt.host))
+             << '\n'
+             << "  SRT port: "
+             << (config.srt.port > 0 ? QString::number(config.srt.port)
+                                     : QString::number(endpoint.port()))
+             << '\n'
+             << "  SRT mode: " << srtModeName(config.srt.mode) << '\n'
+             << "  SRT latency: " << config.srt.latencyMs << " ms\n"
+             << "  SRT Stream ID: "
+             << (config.srt.streamId.empty() ? "not configured" : "configured (redacted)")
+             << '\n'
+             << "  OBS stream-key field: blank (Stream ID is carried in the URL)\n"
+             << "  SRT passphrase: "
+             << (config.srt.passphrase.empty() ? "not configured" : "configured (redacted)")
+             << '\n'
+             << "  SRT PBKEYLEN: "
+             << (config.srt.pbkeylen == 0 ? QString("automatic")
+                                          : QString::number(config.srt.pbkeylen))
+             << '\n'
+             << "  SRT timeout: " << config.srt.timeoutMs << " ms\n"
+             << "  SRT packet size: " << config.srt.packetSize << " bytes\n";
+    } else {
+      output << "  Stream key: "
+             << (config.streamKey.empty() ? "not configured" : "configured (redacted)")
+             << '\n'
+             << "  Username authentication: "
+             << ((!config.username.empty() && !config.password.empty())
+                   ? "configured (values redacted)" : "not configured")
+             << '\n';
+    }
+  };
+  writeOutputSummary("Primary", draftSettings_.primaryOutput);
+  writeOutputSummary("Backup", draftSettings_.backupOutput);
+  output << "\nOutput mapping\n"
+         << "  adv_stream/simple_stream: OBS-managed Primary or sole selected stream\n"
+         << "  kaltura_backup_output: plugin-managed Backup stream\n"
+         << "  Credential, token, stream-key, passphrase, and SRT Stream-ID values are redacted.\n";
+
+  int includedFiles = 0;
+  const QFileInfoList logFiles = logDirectory.entryInfoList(
+    {"*.txt", "*.log"}, QDir::Files | QDir::Readable, QDir::Name);
+  for (const QFileInfo &logFile : logFiles) {
+    const QString filtered = filteredStreamLog(logFile.absoluteFilePath());
+    if (filtered.isEmpty()) continue;
+    ++includedFiles;
+    output << "\n============================================================\n"
+           << "Source OBS log: " << logFile.fileName() << '\n'
+           << "============================================================\n"
+           << filtered << '\n';
+  }
+  if (includedFiles == 0) {
+    QMessageBox::information(this, "No Stream Logs Found",
+                             "OBS has not recorded any streaming or encoder events yet.");
+    return;
+  }
+
+  QString downloadDirectory = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+  if (downloadDirectory.isEmpty()) downloadDirectory = QDir::homePath();
+  const QString suggestedPath = QDir(downloadDirectory).filePath(
+    "kaltura-stream-logs-" + QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss") + ".txt");
+  const QString destination = QFileDialog::getSaveFileName(
+    this, "Download Stream Logs", suggestedPath, "Text files (*.txt)");
+  if (destination.isEmpty()) return;
+
+  QSaveFile file(destination);
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    QMessageBox::warning(this, "Could Not Save Stream Logs",
+                         "The selected file could not be opened for writing.");
+    return;
+  }
+  file.write(report.toUtf8());
+  if (!file.commit()) {
+    QMessageBox::warning(this, "Could Not Save Stream Logs",
+                         "The stream log export could not be completed.");
+    return;
+  }
+  QMessageBox::information(
+    this, "Stream Logs Downloaded",
+    QString("Saved focused Primary and Backup stream diagnostics from %1 OBS log file(s).")
+      .arg(includedFiles));
 }
 
 void SettingsDialog::validateSession()
@@ -1053,46 +1256,34 @@ void SettingsDialog::configureSelectedEntry(const api::LiveEntry &entry)
         return;
       }
 
-      const StreamingEndpoint endpoint =
-        dialog->backupEndpoint_->isChecked() ? StreamingEndpoint::Backup
-        : dialog->bothEndpoints_->isChecked() ? StreamingEndpoint::Both
-                                              : StreamingEndpoint::Primary;
-      const QUrl streamUrl = selectedRtmpUrl(
-        *result.value, endpoint == StreamingEndpoint::Both ? StreamingEndpoint::Primary
-                                                           : endpoint);
-      const QUrl backupStreamUrl = selectedRtmpUrl(*result.value, StreamingEndpoint::Backup);
-      if (!streamUrl.isValid() ||
-          (streamUrl.scheme() != "rtmp" && streamUrl.scheme() != "rtmps") ||
-          (endpoint == StreamingEndpoint::Both &&
-           (!backupStreamUrl.isValid() ||
-            (backupStreamUrl.scheme() != "rtmp" && backupStreamUrl.scheme() != "rtmps")))) {
+      const StreamingEndpoint endpoint = StreamingEndpoint::Both;
+      const StreamOutputConfig primary = mapKalturaOutput(*result.value, OutputRole::Primary);
+      const StreamOutputConfig backup = mapKalturaOutput(*result.value, OutputRole::Backup);
+      std::string validationFailure;
+      if (!validateOutputConfig(primary, validationFailure) ||
+          !validateOutputConfig(backup, validationFailure)) {
         QMessageBox::warning(dialog, "Streaming Configuration Unavailable",
-                             "Kaltura returned an invalid RTMP endpoint for this mode.");
+                             QString::fromUtf8(validationFailure));
         return;
       }
 
       const bool usesAuthentication = !result.value->keys.username.empty() &&
                                       !result.value->keys.password.empty();
-      const QString endpointText = endpoint == StreamingEndpoint::Backup
-                                     ? "Backup"
-                                     : endpoint == StreamingEndpoint::Both
-                                         ? "Primary + Backup simultaneously"
-                                         : "Primary";
       const QString entryName = QString::fromUtf8(entry.name).isEmpty()
                                   ? "Untitled"
                                   : QString::fromUtf8(entry.name);
-      const QString endpointDetails = endpoint == StreamingEndpoint::Both
-        ? QString("Primary URL: %1\nBackup URL: %2")
-            .arg(streamUrl.toDisplayString(), backupStreamUrl.toDisplayString())
-        : QString("RTMP URL: %1").arg(streamUrl.toDisplayString());
+      const QString endpointDetails = QString("Primary: %1 · %2\nBackup: %3 · %4")
+        .arg(QString::fromLatin1(outputProtocolName(primary.protocol)),
+             QString::fromUtf8(primary.endpoint),
+             QString::fromLatin1(outputProtocolName(backup.protocol)),
+             QString::fromUtf8(backup.endpoint));
       const QString confirmation =
-        QString("Change OBS Streaming settings to this Kaltura entry?\n\n"
-                "Entry: %1\nEntry ID: %2\nEndpoint: %3\n%4\n"
-                "Authentication: %5\nStream key: securely populated (hidden)\n\n"
-                "All enabled outputs will start and stop with OBS. You can revert to the "
-                "previous OBS settings afterward.")
-          .arg(entryName, QString::fromUtf8(entry.id), endpointText,
-               endpointDetails, usesAuthentication ? "Required" : "Not required");
+        QString("Configure independent Primary and Backup outputs for this Kaltura entry?\n\n"
+                "Entry: %1\nEntry ID: %2\n%3\n"
+                "Authentication: %4\nStream key: securely populated (hidden)\n\n"
+                "Each output can be started, stopped, and edited separately in the dock.")
+          .arg(entryName, QString::fromUtf8(entry.id), endpointDetails,
+               usesAuthentication ? "Required" : "Not required");
       if (QMessageBox::question(dialog, "Configure OBS Streaming", confirmation,
                                 QMessageBox::Yes | QMessageBox::Cancel,
                                 QMessageBox::Cancel) != QMessageBox::Yes) {
@@ -1210,12 +1401,6 @@ void SettingsDialog::validateAndAccept()
     sessionEdit_->setFocus();
     QMessageBox::warning(this, "Invalid Kaltura Session",
                          "Enter a valid Kaltura Session before saving.");
-    return;
-  }
-
-  if (!primaryEndpoint_->isChecked() && !backupEndpoint_->isChecked() &&
-      !bothEndpoints_->isChecked()) {
-    QMessageBox::warning(this, "Invalid endpoint", "Select a preferred streaming endpoint.");
     return;
   }
 
