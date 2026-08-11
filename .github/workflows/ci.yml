@@ -208,7 +208,10 @@ jobs:
               "-DKALTURA_LIVE_OBS_SOURCE_PATH:PATH=$env:GITHUB_WORKSPACE/third_party/obs-studio" }
           Invoke-Checked { ./scripts/package-windows.ps1 -BuildDirectory build-ci -DistDirectory dist -Configuration RelWithDebInfo }
           } catch {
-            $diagnostic = (Get-Content $log -Tail 100) -join "`n"
+            $errorLines = Get-Content $log |
+              Select-String -Pattern '(?i)(fatal error|error C[0-9]+|error LNK[0-9]+|FAILED|Exception|not found|failed)' |
+              Select-Object -Last 40 | ForEach-Object { $_.Line }
+            $diagnostic = ((Get-Content $log -Tail 30) + $errorLines) -join "`n"
             if ($diagnostic.Length -gt 6000) { $diagnostic = $diagnostic.Substring($diagnostic.Length - 6000) }
             $diagnostic = $diagnostic.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
             Write-Output "::error title=Windows plugin build failed::$diagnostic"
