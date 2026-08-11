@@ -23,13 +23,19 @@ lipo -create \
 
 for relative in Contents/PlugIns/tls/libqsecuretransportbackend.dylib; do
   if [[ -f "${x64_bundle}/${relative}" && -f "${arm_bundle}/${relative}" ]]; then
-    lipo -create "${x64_bundle}/${relative}" "${arm_bundle}/${relative}" \
-      -output "${bundle}/${relative}"
+    bundled_architectures="$(lipo -archs "${bundle}/${relative}")"
+    if [[ " ${bundled_architectures} " != *" x86_64 "* ||
+          " ${bundled_architectures} " != *" arm64 "* ]]; then
+      lipo -create "${x64_bundle}/${relative}" "${arm_bundle}/${relative}" \
+        -output "${bundle}/${relative}"
+    fi
   fi
 done
 
 "${project_dir}/scripts/validate-architecture.sh" macos \
   "${bundle}/Contents/MacOS/kaltura-live" 'x86_64;arm64'
+"${project_dir}/scripts/validate-architecture.sh" macos \
+  "${bundle}/Contents/PlugIns/tls/libqsecuretransportbackend.dylib" 'x86_64;arm64'
 codesign --force --deep --sign "${MACOS_APPLICATION_SIGNING_IDENTITY:--}" \
   --timestamp=none "${bundle}"
 mkdir -p "${dist_dir}"
